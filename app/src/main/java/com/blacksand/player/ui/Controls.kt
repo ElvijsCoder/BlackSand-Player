@@ -3,6 +3,7 @@ package com.blacksand.player.ui
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -38,6 +39,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
@@ -46,6 +49,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -81,7 +85,14 @@ fun TransportKey(
     val holdEnd by rememberUpdatedState(onHoldEnd)
     val pressed by interaction.collectIsPressedAsState()
     val down = pressed || latched
-    val travel by animateDpAsState(if (down) 4.dp else 0.dp, tween(90), label = "keyTravel")
+    // Key geometry: a top face plus a front edge (the key's thickness). Pressing sinks the key
+    // into the housing, so the front edge mostly disappears; on release it springs back up.
+    val edge = height * 0.17f
+    val travel by animateDpAsState(
+        if (down) edge * 0.7f else 0.dp,
+        if (down) tween<Dp>(70) else spring<Dp>(dampingRatio = 0.55f, stiffness = 1400f),
+        label = "keyTravel",
+    )
 
     val view = LocalView.current
     var wasPressed by remember { mutableStateOf(false) }
@@ -94,18 +105,18 @@ fun TransportKey(
         }
     }
 
-    val shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
-    val face = if (down) {
-        Brush.verticalGradient(listOf(Color(0xFF1A1A1A), Color(0xFF141414)))
+    val topShape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 2.dp, bottomEnd = 2.dp)
+    val frontShape = RoundedCornerShape(bottomStart = 7.dp, bottomEnd = 7.dp)
+    val topFace = if (down) {
+        Brush.verticalGradient(listOf(Color(0xFF202020), Color(0xFF181818)))
     } else {
-        Brush.verticalGradient(0f to Color(0xFF2C2C2C), 0.35f to Color(0xFF1E1E1E), 1f to Color(0xFF161616))
+        Brush.verticalGradient(0f to Color(0xFF353535), 0.3f to Color(0xFF262626), 1f to Color(0xFF1C1C1C))
     }
+    val frontFace = Brush.verticalGradient(listOf(Color(0xFF151515), Color(0xFF070707)))
 
     Box(
         modifier
             .height(height)
-            .clip(shape)
-            .background(Color.Black) // the key's shadow, visible below it while raised
             .then(
                 if (onHoldStart == null) {
                     Modifier.clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
@@ -138,26 +149,53 @@ fun TransportKey(
             )
             .semantics { contentDescription = label },
     ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .height(height - 5.dp)
-                .offset(y = travel)
-                .clip(shape)
-                .background(face)
-                .drawBehind { // light catching the top edge
-                    if (!down) drawLine(Color(0xFF3C3C3C), Offset(0f, 0.5f), Offset(size.width, 0.5f), 1.dp.toPx())
-                },
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
-        ) {
-            if (caption != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (led) PlayLight(latched, dot = 6.dp)
-                    Text(caption, fontSize = 9.sp, letterSpacing = 2.sp, color = Sand.Dim)
+        Column(Modifier.fillMaxWidth().offset(y = travel)) {
+            // Top face, with bevels: light on the top and left edges, dark on the right.
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .height(height - edge)
+                    .clip(topShape)
+                    .background(topFace)
+                    .drawBehind {
+                        val w = 1.dp.toPx()
+                        drawLine(Color.White.copy(alpha = if (down) 0.04f else 0.15f), Offset(0f, w / 2), Offset(size.width, w / 2), w)
+                        drawLine(Color.White.copy(alpha = 0.05f), Offset(w / 2, 0f), Offset(w / 2, size.height), w)
+                        drawLine(Color.Black.copy(alpha = 0.5f), Offset(size.width - w / 2, 0f), Offset(size.width - w / 2, size.height), w)
+                        if (!down) {
+                            drawRect(
+                                Brush.verticalGradient(
+                                    listOf(Color.White.copy(alpha = 0.05f), Color.Transparent), endY = size.height * 0.5f,
+                                )
+                            )
+                        }
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+            ) {
+                if (caption != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (led) PlayLight(latched, dot = 6.dp)
+                        // Engraved: a faint highlight just below the letters.
+                        Text(
+                            caption, fontSize = 9.sp, letterSpacing = 2.sp, color = Sand.Dim,
+                            style = TextStyle(shadow = Shadow(Color.White.copy(alpha = 0.12f), Offset(0f, 1.5f))),
+                        )
+                    }
                 }
+                KeyGlyph(icon, if (down) Color.White else Sand.White)
             }
-            KeyGlyph(icon, if (down) Color.White else Sand.White)
+            // Front edge: the key's thickness, shrinking as the key sinks.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height((edge - travel).coerceAtLeast(0.dp))
+                    .clip(frontShape)
+                    .background(frontFace)
+                    .drawBehind {
+                        drawLine(Color(0xFF2E2E2E), Offset(0f, 0.5f), Offset(size.width, 0.5f), 1.dp.toPx())
+                    }
+            )
         }
     }
 }
@@ -169,15 +207,17 @@ private fun KeyGlyph(icon: KeyIcon, color: Color) {
         fun tri(from: Float, tip: Float) = Path().apply {
             moveTo(from * u, 2 * u); lineTo(tip * u, 8 * u); lineTo(from * u, 14 * u); close()
         }
-        when (icon) {
-            KeyIcon.Prev -> { drawPath(tri(16f, 7f), color); drawPath(tri(25f, 16f), color) }
-            KeyIcon.Next -> { drawPath(tri(7f, 16f), color); drawPath(tri(16f, 25f), color) }
+        fun draw(c: Color) = when (icon) {
+            KeyIcon.Prev -> { drawPath(tri(16f, 7f), c); drawPath(tri(25f, 16f), c) }
+            KeyIcon.Next -> { drawPath(tri(7f, 16f), c); drawPath(tri(16f, 25f), c) }
             KeyIcon.PlayPause -> {
-                drawPath(tri(3f, 13f), color)
-                drawRect(color, Offset(19 * u, 2 * u), Size(3.5f * u, 12 * u))
-                drawRect(color, Offset(26 * u, 2 * u), Size(3.5f * u, 12 * u))
+                drawPath(tri(3f, 13f), c)
+                drawRect(c, Offset(19 * u, 2 * u), Size(3.5f * u, 12 * u))
+                drawRect(c, Offset(26 * u, 2 * u), Size(3.5f * u, 12 * u))
             }
         }
+        translate(top = 1.dp.toPx()) { draw(Color.White.copy(alpha = 0.1f)) } // engraved highlight
+        draw(color)
     }
 }
 
