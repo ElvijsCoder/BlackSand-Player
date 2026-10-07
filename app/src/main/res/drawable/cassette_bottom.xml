@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The cassette's bottom section: trapezoid, two guide holes, three small holes, visible tape. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="78dp" android:height="17dp" android:viewportWidth="260" android:viewportHeight="56">
+    <path android:fillColor="#0F0F0F" android:pathData="M23.4,0L236.6,0L260,56L0,56Z" />
+    <path android:fillColor="#050505" android:strokeColor="#262626" android:strokeWidth="2"
+        android:pathData="M51.7,14a7.5,7.5 0,1 1,0 15a7.5,7.5 0,1 1,0 -15z" />
+    <path android:fillColor="#050505" android:strokeColor="#262626" android:strokeWidth="2"
+        android:pathData="M208.3,14a7.5,7.5 0,1 1,0 15a7.5,7.5 0,1 1,0 -15z" />
+    <path android:fillColor="#050505" android:pathData="M101,18h8v8h-8z M123,18h14v8h-14z M151,18h8v8h-8z" />
+    <path android:fillColor="#3A332E" android:pathData="M20.8,44h218.4v5h-218.4z" />
+</vector>

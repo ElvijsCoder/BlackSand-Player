@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 4x2: cassette, three deck keys, then light + progress + counter. -->
+<!-- 4x2: the Option A cassette, three deck keys, then light + progress + counter. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@android:id/background"
     android:layout_width="match_parent"
@@ -7,61 +7,100 @@
     android:background="@drawable/widget_bg"
     android:clipToOutline="true"
     android:orientation="vertical"
-    android:padding="12dp">
-
-    <!-- Cassette: tap to open the app -->
+    android:padding="10dp">
+    <!-- Cassette (Option A): shell, screws, label, tape window, label strip, bottom section. Tap to open the app. -->
     <FrameLayout
         android:id="@+id/cassette"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:background="@drawable/cassette_shell"
-        android:padding="6dp">
+        android:background="@drawable/cassette_shell">
+
+        <ImageView
+            android:layout_width="7dp"
+            android:layout_height="7dp"
+            android:layout_gravity="top|start"
+            android:layout_margin="3dp"
+            android:contentDescription="@null"
+            android:src="@drawable/screw" />
+        <ImageView
+            android:layout_width="7dp"
+            android:layout_height="7dp"
+            android:layout_gravity="top|end"
+            android:layout_margin="3dp"
+            android:contentDescription="@null"
+            android:src="@drawable/screw" />
+        <ImageView
+            android:layout_width="7dp"
+            android:layout_height="7dp"
+            android:layout_gravity="bottom|start"
+            android:layout_margin="3dp"
+            android:contentDescription="@null"
+            android:src="@drawable/screw" />
+        <ImageView
+            android:layout_width="7dp"
+            android:layout_height="7dp"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="3dp"
+            android:contentDescription="@null"
+            android:src="@drawable/screw" />
+
+        <ImageView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:contentDescription="@null"
+            android:src="@drawable/cassette_bottom" />
+
+        <ImageView
+            android:layout_width="7dp"
+            android:layout_height="7dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_margin="3dp"
+            android:contentDescription="@null"
+            android:src="@drawable/screw" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:layout_marginStart="12dp"
+            android:layout_marginTop="7dp"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="17dp"
             android:background="@drawable/cassette_label"
-            android:orientation="horizontal"
-            android:padding="6dp">
-
-            <ImageView
-                android:id="@+id/art"
-                android:layout_width="56dp"
-                android:layout_height="match_parent"
-                android:background="@drawable/art_placeholder"
-                android:contentDescription="@null"
-                android:scaleType="centerCrop" />
+            android:orientation="vertical">
 
             <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:orientation="vertical">
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="6dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="5dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/space_grotesk"
+                    android:includeFontPadding="false"
+                    android:text="A"
+                    android:textColor="#111111"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
 
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:fontFamily="@font/space_grotesk"
-                        android:includeFontPadding="false"
-                        android:text="A"
-                        android:textColor="#111111"
-                        android:textSize="17sp"
-                        android:textStyle="bold" />
+                    android:layout_marginStart="6dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
 
                     <TextView
                         android:id="@+id/title"
-                        android:layout_width="0dp"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="6dp"
-                        android:layout_weight="1"
                         android:background="@drawable/ruled_line"
                         android:ellipsize="end"
                         android:fontFamily="@font/space_grotesk"
@@ -70,68 +109,70 @@
                         android:singleLine="true"
                         android:text="@string/widget_idle_title"
                         android:textColor="#111111"
-                        android:textSize="12sp"
+                        android:textSize="11sp"
                         android:textStyle="bold" />
 
                     <TextView
-                        android:id="@+id/track"
-                        android:layout_width="wrap_content"
+                        android:id="@+id/artist"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="6dp"
-                        android:fontFamily="@font/doto"
+                        android:layout_marginTop="2dp"
+                        android:background="@drawable/ruled_line"
+                        android:ellipsize="end"
+                        android:fontFamily="@font/space_mono_regular"
                         android:includeFontPadding="false"
-                        android:textColor="#111111"
-                        android:textSize="13sp" />
+                        android:paddingBottom="2dp"
+                        android:singleLine="true"
+                        android:textColor="#444444"
+                        android:textSize="8sp" />
                 </LinearLayout>
 
-                <TextView
-                    android:id="@+id/artist"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="3dp"
-                    android:background="@drawable/ruled_line"
-                    android:ellipsize="end"
-                    android:fontFamily="@font/space_mono_regular"
-                    android:includeFontPadding="false"
-                    android:paddingBottom="2dp"
-                    android:singleLine="true"
-                    android:textColor="#444444"
-                    android:textSize="9sp" />
+                <ImageView
+                    android:id="@+id/art"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:background="@drawable/art_placeholder"
+                    android:contentDescription="@null"
+                    android:scaleType="centerCrop" />
+            </LinearLayout>
 
-                <!-- Tape window: two reels, tape between them -->
-                <FrameLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_marginTop="4dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/tape_window"
-                    android:minHeight="26dp"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp">
+            <!-- Tape window, cut through the middle of the label -->
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginStart="26dp"
+                android:layout_marginTop="3dp"
+                android:layout_marginEnd="26dp"
+                android:layout_marginBottom="3dp"
+                android:layout_weight="1"
+                android:background="@drawable/tape_window"
+                android:minHeight="18dp"
+                android:paddingStart="3dp"
+                android:paddingEnd="3dp">
 
                     <FrameLayout
-                        android:layout_width="30dp"
+                        android:layout_width="24dp"
                         android:layout_height="match_parent"
                         android:layout_gravity="start|center_vertical">
                         <ImageView
                             android:id="@+id/pack_left"
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
                             android:layout_gravity="center"
                             android:contentDescription="@null"
                             android:src="@drawable/tape_pack" />
                         <ImageView
                             android:id="@+id/hub_left"
-                            android:layout_width="12dp"
-                            android:layout_height="12dp"
+                            android:layout_width="10dp"
+                            android:layout_height="10dp"
                             android:layout_gravity="center"
                             android:contentDescription="@null"
                             android:rotation="20"
                             android:src="@drawable/reel_hub" />
                         <ProgressBar
                             android:id="@+id/spin_left"
-                            android:layout_width="12dp"
-                            android:layout_height="12dp"
+                            android:layout_width="10dp"
+                            android:layout_height="10dp"
                             android:layout_gravity="center"
                             android:indeterminate="true"
                             android:indeterminateDrawable="@drawable/reel_hub_spin"
@@ -140,36 +181,36 @@
                             android:visibility="gone" />
                     </FrameLayout>
 
-                    <ImageView
-                        android:layout_width="30dp"
-                        android:layout_height="12dp"
-                        android:layout_gravity="center"
-                        android:contentDescription="@null"
-                        android:src="@drawable/tape_center" />
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="9dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null"
+                    android:src="@drawable/tape_center" />
 
                     <FrameLayout
-                        android:layout_width="30dp"
+                        android:layout_width="24dp"
                         android:layout_height="match_parent"
                         android:layout_gravity="end|center_vertical">
                         <ImageView
                             android:id="@+id/pack_right"
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
                             android:layout_gravity="center"
                             android:contentDescription="@null"
                             android:src="@drawable/tape_pack" />
                         <ImageView
                             android:id="@+id/hub_right"
-                            android:layout_width="12dp"
-                            android:layout_height="12dp"
+                            android:layout_width="10dp"
+                            android:layout_height="10dp"
                             android:layout_gravity="center"
                             android:contentDescription="@null"
                             android:rotation="75"
                             android:src="@drawable/reel_hub" />
                         <ProgressBar
                             android:id="@+id/spin_right"
-                            android:layout_width="12dp"
-                            android:layout_height="12dp"
+                            android:layout_width="10dp"
+                            android:layout_height="10dp"
                             android:layout_gravity="center"
                             android:indeterminate="true"
                             android:indeterminateDrawable="@drawable/reel_hub_spin"
@@ -177,7 +218,37 @@
                             android:indeterminateOnly="true"
                             android:visibility="gone" />
                     </FrameLayout>
-                </FrameLayout>
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="11dp"
+                android:background="@drawable/label_stripe"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:fontFamily="@font/space_mono_regular"
+                    android:includeFontPadding="false"
+                    android:letterSpacing="0.2"
+                    android:singleLine="true"
+                    android:text="TYPE I · NORMAL"
+                    android:textColor="#CFCCC5"
+                    android:textSize="6sp" />
+
+                <TextView
+                    android:id="@+id/track"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/doto"
+                    android:includeFontPadding="false"
+                    android:textColor="#CFCCC5"
+                    android:textSize="10sp" />
             </LinearLayout>
         </LinearLayout>
     </FrameLayout>
@@ -185,8 +256,8 @@
     <!-- Deck keys -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:layout_marginTop="8dp"
+        android:layout_height="38dp"
+        android:layout_marginTop="6dp"
         android:background="@drawable/key_recess"
         android:orientation="horizontal"
         android:padding="4dp">
@@ -206,7 +277,6 @@
                 android:contentDescription="@null"
                 android:src="@drawable/glyph_prev" />
         </FrameLayout>
-
         <FrameLayout
             android:id="@+id/key_play"
             android:layout_width="0dp"
@@ -224,7 +294,6 @@
                 android:contentDescription="@null"
                 android:src="@drawable/glyph_playpause" />
         </FrameLayout>
-
         <FrameLayout
             android:id="@+id/key_next"
             android:layout_width="0dp"
@@ -246,7 +315,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="5dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -286,7 +355,7 @@
             android:fontFamily="@font/doto"
             android:includeFontPadding="false"
             android:textColor="#F2F2F0"
-            android:textSize="18sp" />
+            android:textSize="16sp" />
 
         <TextView
             android:id="@+id/total"

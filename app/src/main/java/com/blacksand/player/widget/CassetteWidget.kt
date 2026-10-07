@@ -17,6 +17,7 @@ import androidx.core.content.edit
 import androidx.media3.session.MediaButtonReceiver
 import com.blacksand.player.MainActivity
 import com.blacksand.player.R
+import com.blacksand.player.playback.PlaybackService
 import com.blacksand.player.ui.formatTime
 
 /** What the widget shows. Built by the playback service; [art] is already greyscale. */
@@ -102,7 +103,7 @@ class CassetteWidget : AppWidgetProvider() {
             v.setViewVisibility(R.id.hub_right, still)
 
             // Tape moves from the left reel to the right as the song plays.
-            val (min, max) = if (large) 12f to 24f else 11f to 20f
+            val (min, max) = if (large) 10f to 18f else 9f to 16f
             setSize(v, R.id.pack_left, min + (max - min) * (1 - progress))
             setSize(v, R.id.pack_right, min + (max - min) * progress)
 
@@ -116,8 +117,8 @@ class CassetteWidget : AppWidgetProvider() {
             v.setOnClickPendingIntent(R.id.key_next, mediaButton(context, KeyEvent.KEYCODE_MEDIA_NEXT))
             v.setOnClickPendingIntent(R.id.cassette, openApp(context))
 
+            v.setTextViewText(R.id.track, if (s.count > 0) "%02d/%02d".format(s.track, s.count) else "")
             if (large) {
-                v.setTextViewText(R.id.track, if (s.count > 0) "%02d/%02d".format(s.track, s.count) else "")
                 v.setTextViewText(R.id.status, if (s.playing) "PLAY" else "PAUSE")
                 v.setProgressBar(R.id.progress, 1000, (progress * 1000).toInt(), false)
                 // The counter ticks by itself while playing; no updates needed.
@@ -132,14 +133,25 @@ class CassetteWidget : AppWidgetProvider() {
             v.setViewLayoutHeight(id, dp, TypedValue.COMPLEX_UNIT_DIP)
         }
 
-        // Keys send standard media-button presses, so they work even when the app is closed.
+        /**
+         * PLAY goes through Media3's media-button receiver, which can start the app from closed.
+         * That receiver ignores every other key by design, so pause/next/previous go straight to the
+         * running playback service, the same way the notification's buttons do.
+         */
         private fun mediaButton(context: Context, keyCode: Int): PendingIntent {
-            val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
-                .setClass(context, MediaButtonReceiver::class.java)
-                .putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
-            return PendingIntent.getBroadcast(
-                context, keyCode, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
+            val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            val event = KeyEvent(KeyEvent.ACTION_DOWN, keyCode)
+            return if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY) {
+                val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                    .setClass(context, MediaButtonReceiver::class.java)
+                    .putExtra(Intent.EXTRA_KEY_EVENT, event)
+                PendingIntent.getBroadcast(context, keyCode, intent, flags)
+            } else {
+                val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                    .setClass(context, PlaybackService::class.java)
+                    .putExtra(Intent.EXTRA_KEY_EVENT, event)
+                PendingIntent.getService(context, keyCode, intent, flags)
+            }
         }
 
         private fun openApp(context: Context): PendingIntent = PendingIntent.getActivity(
