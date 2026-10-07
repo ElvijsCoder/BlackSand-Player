@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reel hub: white ring, six drive teeth pointing into the hole, three spoke holes. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#F2F2F0" android:pathData="M12,1a11,11 0,1 1,0 22a11,11 0,1 1,0 -22z" />
+    <path android:fillColor="#0E0E0E" android:pathData="M12,6.2a5.8,5.8 0,1 1,0 11.6a5.8,5.8 0,1 1,0 -11.6z" />
+    <group android:pivotX="12" android:pivotY="12" android:rotation="0"><path android:fillColor="#F2F2F0" android:pathData="M11.1,6.1h1.8v2.5h-1.8z" /></group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="60"><path android:fillColor="#F2F2F0" android:pathData="M11.1,6.1h1.8v2.5h-1.8z" /></group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="120"><path android:fillColor="#F2F2F0" android:pathData="M11.1,6.1h1.8v2.5h-1.8z" /></group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="180"><path android:fillColor="#F2F2F0" android:pathData="M11.1,6.1h1.8v2.5h-1.8z" /></group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="240"><path android:fillColor="#F2F2F0" android:pathData="M11.1,6.1h1.8v2.5h-1.8z" /></group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="300"><path android:fillColor="#F2F2F0" android:pathData="M11.1,6.1h1.8v2.5h-1.8z" /></group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="30"><path android:fillColor="#0E0E0E" android:pathData="M12,2.2a1.5,1.5 0,1 1,0 3a1.5,1.5 0,1 1,0 -3z" /></group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="150"><path android:fillColor="#0E0E0E" android:pathData="M12,2.2a1.5,1.5 0,1 1,0 3a1.5,1.5 0,1 1,0 -3z" /></group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="270"><path android:fillColor="#0E0E0E" android:pathData="M12,2.2a1.5,1.5 0,1 1,0 3a1.5,1.5 0,1 1,0 -3z" /></group>
+</vector>

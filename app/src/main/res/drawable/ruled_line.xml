@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A line of "handwriting" on the label: just a thin rule along the bottom. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:gravity="bottom" android:height="1dp">
+        <shape><solid android:color="#B9B6AE" /></shape>
+    </item>
+</layer-list>

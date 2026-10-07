@@ -4,6 +4,12 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
 import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
@@ -18,8 +24,11 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.blacksand.player.data.MusicRepository
 import com.blacksand.player.data.toMediaItem
+import com.blacksand.player.widget.CassetteWidget
+import com.blacksand.player.widget.WidgetState
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +76,12 @@ class PlaybackService : MediaSessionService() {
                         Player.EVENT_REPEAT_MODE_CHANGED,
                     )
                 ) saveQueue(player)
+                if (events.containsAny(
+                        Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION,
+                        Player.EVENT_MEDIA_METADATA_CHANGED, Player.EVENT_POSITION_DISCONTINUITY,
+                        Player.EVENT_TIMELINE_CHANGED,
+                    )
+                ) pushWidget()
             }
 
             // "End of song" sleep: ExoPlayer paused at the end of the track, so the timer is done.
@@ -81,10 +96,15 @@ class PlaybackService : MediaSessionService() {
         restoreQueue(player)
 
         // Position changes constantly; save it every few seconds while playing.
+        // Every 30 s it also refreshes the widget's progress bar and tape amount.
         scope.launch {
+            var ticks = 0
             while (isActive) {
                 delay(5_000)
-                if (player.isPlaying) prefs.edit { putLong(KEY_POSITION, player.currentPosition) }
+                if (player.isPlaying) {
+                    prefs.edit { putLong(KEY_POSITION, player.currentPosition) }
+                    if (++ticks % 6 == 0) pushWidget()
+                }
             }
         }
     }
@@ -99,6 +119,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        pushWidget(stopped = true)
         mediaSession?.run {
             saveQueue(player)
             player.release()
@@ -154,27 +175,72 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    /** Loads the last queue, paused at the saved spot. Songs deleted since are skipped. */
-    private fun restoreQueue(player: Player) {
-        val saved = prefs.getString(KEY_QUEUE, null) ?: return
+    /** The last saved queue and spot, or null. Songs deleted since are skipped. */
+    private suspend fun loadSavedQueue(): MediaSession.MediaItemsWithStartPosition? {
+        val saved = prefs.getString(KEY_QUEUE, null) ?: return null
         val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
-        if (!granted) return
+        if (!granted) return null
+        val byId = MusicRepository(this).loadSongs().associateBy { it.id.toString() }
+        val savedIds = saved.split(",")
+        val items = savedIds.mapNotNull { byId[it]?.toMediaItem() }
+        if (items.isEmpty()) return null
+        val currentId = savedIds.getOrNull(prefs.getInt(KEY_INDEX, 0))
+        val found = items.indexOfFirst { it.mediaId == currentId }
+        val position = if (found >= 0) prefs.getLong(KEY_POSITION, 0) else 0L
+        return MediaSession.MediaItemsWithStartPosition(items, found.coerceAtLeast(0), position)
+    }
+
+    /** Loads the last queue, paused at the saved spot, unless something is already playing. */
+    private fun restoreQueue(player: Player) {
         scope.launch {
-            val byId = MusicRepository(this@PlaybackService).loadSongs().associateBy { it.id.toString() }
-            val savedIds = saved.split(",")
-            val items = savedIds.mapNotNull { byId[it]?.toMediaItem() }
-            if (items.isEmpty() || player.mediaItemCount > 0) return@launch // user already started something
-            val savedIndex = prefs.getInt(KEY_INDEX, 0)
-            val currentId = savedIds.getOrNull(savedIndex)
-            val found = items.indexOfFirst { it.mediaId == currentId }
-            val index = found.coerceAtLeast(0)
-            val position = if (found >= 0) prefs.getLong(KEY_POSITION, 0) else 0L
+            val saved = loadSavedQueue() ?: return@launch
+            if (player.mediaItemCount > 0) return@launch // user already started something
             player.shuffleModeEnabled = prefs.getBoolean(KEY_SHUFFLE, false)
             player.repeatMode = prefs.getInt(KEY_REPEAT, Player.REPEAT_MODE_OFF)
-            player.setMediaItems(items, index, position)
+            player.setMediaItems(saved.mediaItems, saved.startIndex, saved.startPositionMs)
             player.prepare()
         }
+    }
+
+    // --- Widget ------------------------------------------------------------------------
+
+    private var widgetArtKey: String? = null
+    private var widgetArt: Bitmap? = null
+
+    private fun pushWidget(stopped: Boolean = false) {
+        val meta = player.mediaMetadata
+        val key = "${player.currentMediaItem?.mediaId}:${meta.artworkData?.size}"
+        if (key != widgetArtKey) {
+            widgetArtKey = key
+            widgetArt = meta.artworkData?.let { greyThumb(it) }
+        }
+        val state = WidgetState(
+            title = meta.title?.toString(),
+            artist = meta.artist?.toString(),
+            playing = player.isPlaying && !stopped,
+            positionMs = player.currentPosition,
+            durationMs = player.duration.coerceAtLeast(0L),
+            track = player.currentMediaItemIndex + 1,
+            count = player.mediaItemCount,
+            art = widgetArt,
+        )
+        CassetteWidget.push(this, state)
+        if (state.title != null) CassetteWidget.saveSnapshot(this, state)
+    }
+
+    /** Cover art shrunk to ~256 px and turned greyscale, to match the cassette label. */
+    private fun greyThumb(bytes: ByteArray): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 256) sample *= 2
+        val src = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?: return null
+        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val paint = Paint().apply { colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) }) }
+        Canvas(out).drawBitmap(src, 0f, 0f, paint)
+        return out
     }
 
     private inner class SessionCallback : MediaSession.Callback {
@@ -198,6 +264,19 @@ class PlaybackService : MediaSessionService() {
         ): ListenableFuture<SessionResult> {
             if (customCommand.customAction == CMD_SLEEP) setSleep(args.getInt(ARG_MINUTES))
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
+
+        // A widget key or headphone button pressed while nothing is loaded: pick up where we left off.
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            scope.launch {
+                val saved = loadSavedQueue()
+                if (saved != null) future.set(saved) else future.setException(UnsupportedOperationException("Nothing to resume"))
+            }
+            return future
         }
 
         // Media3 strips file URIs from items sent by a controller, so restore them here.

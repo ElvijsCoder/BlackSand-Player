@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">Black Sand</string>
+    <string name="widget_description">Cassette deck with your music: play, skip and watch the reels turn.</string>
+    <string name="widget_idle_title">Black Sand</string>
+    <string name="widget_prev">Previous track</string>
+    <string name="widget_play">Play or pause</string>
+    <string name="widget_next">Next track</string>
 </resources>

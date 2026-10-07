@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget body: near-black with a faint film-grain tile. The launcher clips it to rounded corners. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape><solid android:color="#0B0B0B" /></shape></item>
+    <item>
+        <bitmap android:src="@drawable/widget_grain" android:tileMode="repeat" />
+    </item>
+</layer-list>

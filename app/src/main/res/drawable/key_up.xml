@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Raised piano key: dark front edge (the key's thickness) below a bevelled top face. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape><solid android:color="#070707" /><corners android:radius="6dp" /></shape></item>
+    <item android:bottom="5dp">
+        <shape>
+            <gradient android:angle="270" android:startColor="#353535" android:centerColor="#262626" android:endColor="#1C1C1C" />
+            <corners android:radius="6dp" />
+        </shape>
+    </item>
+    <item android:gravity="top" android:height="1dp" android:left="4dp" android:right="4dp">
+        <shape><solid android:color="#40FFFFFF" /></shape>
+    </item>
+</layer-list>
