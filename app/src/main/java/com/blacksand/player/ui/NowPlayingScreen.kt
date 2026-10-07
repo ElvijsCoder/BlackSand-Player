@@ -154,14 +154,14 @@ private fun Cassette(ui: PlayerUiState, modifier: Modifier) {
 
         Box(
             Modifier
-                .offset(26 * u, 18 * u)
-                .size(340 * u, 154 * u)
-                .clip(RoundedCornerShape(6 * u))
+                .offset(u * 26, u * 18)
+                .size(u * 340, u * 154)
+                .clip(RoundedCornerShape(u * 6))
                 .background(Sand.Label)
         ) {
             Row(
-                Modifier.fillMaxWidth().padding(start = 12 * u, end = 12 * u, top = 8 * u),
-                horizontalArrangement = Arrangement.spacedBy(10 * u),
+                Modifier.fillMaxWidth().padding(start = u * 12, end = u * 12, top = u * 8),
+                horizontalArrangement = Arrangement.spacedBy(u * 10),
             ) {
                 Text(
                     "A", fontFamily = TitleFont, fontWeight = FontWeight.Bold,
@@ -171,18 +171,18 @@ private fun Cassette(ui: PlayerUiState, modifier: Modifier) {
                     RuledLine(ui.title ?: "", TitleFont, FontWeight.SemiBold, (14 * k).sp, Sand.Ink, u)
                     RuledLine(ui.artist ?: "", MonoFont, FontWeight.Normal, (11 * k).sp, Sand.InkDim, u)
                 }
-                AlbumArt(ui.artwork, Modifier.size(42 * u))
+                AlbumArt(ui.artwork, Modifier.size(u * 42))
             }
 
-            TapeWindow(ui.isPlaying, ui.progress, Modifier.offset(46 * u, 62 * u).size(248 * u, 70 * u))
+            TapeWindow(ui.isPlaying, ui.progress, Modifier.offset(u * 46, u * 62).size(u * 248, u * 70))
 
             Row(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(16 * u)
+                    .height(u * 16)
                     .background(Color(0xFF151515))
-                    .padding(horizontal = 12 * u),
+                    .padding(horizontal = u * 12),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("TYPE I · NORMAL", color = LabelEdge, fontSize = (8 * k).sp, letterSpacing = (1.8f * k).sp)
@@ -206,7 +206,7 @@ private fun RuledLine(text: String, family: FontFamily, weight: FontWeight, text
             .drawBehind {
                 drawLine(LabelLine, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
             }
-            .padding(vertical = 2 * u),
+            .padding(vertical = u * 2),
         fontFamily = family,
         fontWeight = weight,
         fontSize = textSize,
@@ -219,28 +219,28 @@ private fun RuledLine(text: String, family: FontFamily, weight: FontWeight, text
 /** Shell, screws and the bottom guide-hole section, in 392x250 mockup units. */
 private fun DrawScope.drawShell() {
     val u = size.width / 392f
-    val corner = CornerRadius(14 * u)
+    val corner = CornerRadius(u * 14)
     drawRoundRect(Brush.verticalGradient(listOf(Color(0xFF1C1C1C), Color(0xFF121212))), cornerRadius = corner)
     drawRoundRect(Color(0xFF2A2A2A), cornerRadius = corner, style = Stroke(1.dp.toPx()))
 
     // Bottom section: a trapezoid with two guide holes, three small holes and visible tape.
-    val top = 194 * u
+    val top = u * 194
     val bottom = size.height
     drawPath(
         Path().apply {
-            moveTo(89.4f * u, top); lineTo(302.6f * u, top)
-            lineTo(326 * u, bottom); lineTo(66 * u, bottom); close()
+            moveTo(u * 89.4f, top); lineTo(u * 302.6f, top)
+            lineTo(u * 326, bottom); lineTo(u * 66, bottom); close()
         },
         Color(0xFF0F0F0F),
     )
     for (x in listOf(117.7f, 274.3f)) {
-        drawCircle(Color(0xFF050505), 7.5f * u, Offset(x * u, 215.5f * u))
-        drawCircle(Color(0xFF262626), 8.5f * u, Offset(x * u, 215.5f * u), style = Stroke(2 * u))
+        drawCircle(Color(0xFF050505), u * 7.5f, Offset(x * u, u * 215.5f))
+        drawCircle(Color(0xFF262626), u * 8.5f, Offset(x * u, u * 215.5f), style = Stroke(u * 2))
     }
     for ((x, w) in listOf(167f to 8f, 189f to 14f, 217f to 8f)) {
-        drawRect(Color(0xFF050505), Offset(x * u, 212 * u), Size(w * u, 8 * u))
+        drawRect(Color(0xFF050505), Offset(x * u, u * 212), Size(w * u, u * 8))
     }
-    drawRect(Color(0xFF3A332E), Offset(86.8f * u, 238 * u), Size(218.4f * u, 5 * u))
+    drawRect(Color(0xFF3A332E), Offset(u * 86.8f, u * 238), Size(u * 218.4f, u * 5))
 
     // Five screws, each slot at its own angle.
     listOf(
@@ -249,10 +249,10 @@ private fun DrawScope.drawShell() {
     ).forEach { (x, y, a) ->
         val c = Offset(x * u, y * u)
         drawCircle(
-            Brush.radialGradient(listOf(Color(0xFF4A4A4A), Color(0xFF161616)), center = c - Offset(2 * u, 2 * u), radius = 6 * u),
-            5.5f * u, c,
+            Brush.radialGradient(listOf(Color(0xFF4A4A4A), Color(0xFF161616)), center = c - Offset(u * 2, u * 2), radius = u * 6),
+            u * 5.5f, c,
         )
-        rotate(a, c) { drawRect(Color(0xFF0A0A0A), Offset(c.x - 3.5f * u, c.y - 0.75f * u), Size(7 * u, 1.5f * u)) }
+        rotate(a, c) { drawRect(Color(0xFF0A0A0A), Offset(c.x - u * 3.5f, c.y - u * 0.75f), Size(u * 7, u * 1.5f)) }
     }
 }
 
