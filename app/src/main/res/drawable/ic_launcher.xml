@@ -1,0 +1,10 @@
+<!-- ponytail: placeholder reel icon; a proper adaptive icon comes with the visual phase. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#0B0B0B" android:pathData="M54,0a54,54 0,1 1,0 108a54,54 0,1 1,0 -108z"/>
+    <path android:fillColor="#F2F2F0" android:pathData="M54,26a28,28 0,1 1,0 56a28,28 0,1 1,0 -56z"/>
+    <path android:fillColor="#0B0B0B" android:pathData="M54,46a8,8 0,1 1,0 16a8,8 0,1 1,0 -16z"/>
+    <path android:fillColor="#0B0B0B" android:pathData="M50,28h8v12h-8z"/>
+    <path android:fillColor="#D71921" android:pathData="M78,74a5,5 0,1 1,0 10a5,5 0,1 1,0 -10z"/>
+</vector>

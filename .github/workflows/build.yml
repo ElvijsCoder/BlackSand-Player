@@ -1,0 +1,44 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      # ponytail: debug-signed with a throwaway key per run, so uninstall before each install.
+      # Add a keystore (secrets + assembleRelease) once the app holds data worth keeping.
+      - name: Build debug APK
+        run: |
+          gradle assembleDebug
+          mv app/build/outputs/apk/debug/app-debug.apk "BlackSand-${{ github.run_number }}.apk"
+
+      # Also attach the APK to the run itself (Summary page → Artifacts).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BlackSand-${{ github.run_number }}
+          path: BlackSand-${{ github.run_number }}.apk
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          prerelease: true
+          files: BlackSand-${{ github.run_number }}.apk
