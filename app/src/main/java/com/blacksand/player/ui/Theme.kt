@@ -90,10 +90,12 @@ private val grainTile: ImageBitmap by lazy {
     Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888).asImageBitmap()
 }
 
+// Grain sits on the background only: drawn before the content, so keys, the cassette and text stay clean.
+// Put it right after .background(...) in a modifier chain.
 fun Modifier.grain(): Modifier = drawWithCache {
     val brush = ShaderBrush(ImageShader(grainTile, TileMode.Repeated, TileMode.Repeated))
     onDrawWithContent {
-        drawContent()
         drawRect(brush)
+        drawContent()
     }
 }

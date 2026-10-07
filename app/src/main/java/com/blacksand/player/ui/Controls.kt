@@ -7,7 +7,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +26,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,15 +39,22 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 enum class KeyIcon { Prev, PlayPause, Next }
+
+private const val HOLD_MS = 450L
 
 /**
  * A tall piano key from an old tape deck: sinks in while pressed, clicks on press and release.
@@ -60,8 +71,14 @@ fun TransportKey(
     height: Dp = 72.dp,
     caption: String? = null,
     led: Boolean = false,
+    onHoldStart: (() -> Unit)? = null,
+    onHoldEnd: (() -> Unit)? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
+    val scope = rememberCoroutineScope()
+    val click by rememberUpdatedState(onClick)
+    val holdStart by rememberUpdatedState(onHoldStart)
+    val holdEnd by rememberUpdatedState(onHoldEnd)
     val pressed by interaction.collectIsPressedAsState()
     val down = pressed || latched
     val travel by animateDpAsState(if (down) 4.dp else 0.dp, tween(90), label = "keyTravel")
@@ -89,7 +106,36 @@ fun TransportKey(
             .height(height)
             .clip(shape)
             .background(Color.Black) // the key's shadow, visible below it while raised
-            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .then(
+                if (onHoldStart == null) {
+                    Modifier.clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+                } else {
+                    // Tap = onClick; hold past HOLD_MS = onHoldStart, then onHoldEnd on release.
+                    Modifier
+                        .pointerInput(Unit) {
+                            detectTapGestures(onPress = { offset ->
+                                val press = PressInteraction.Press(offset)
+                                interaction.emit(press)
+                                var held = false
+                                val holdJob = scope.launch {
+                                    delay(HOLD_MS)
+                                    held = true
+                                    holdStart?.invoke()
+                                }
+                                val released = tryAwaitRelease()
+                                holdJob.cancel()
+                                interaction.emit(
+                                    if (released) PressInteraction.Release(press) else PressInteraction.Cancel(press)
+                                )
+                                if (held) holdEnd?.invoke() else if (released) click()
+                            })
+                        }
+                        .semantics {
+                            role = Role.Button
+                            this.onClick(label = null, action = { click(); true })
+                        }
+                }
+            )
             .semantics { contentDescription = label },
     ) {
         Column(

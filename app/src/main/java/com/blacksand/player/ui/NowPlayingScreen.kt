@@ -1,6 +1,13 @@
 package com.blacksand.player.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -84,7 +91,22 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
             Text("NOW PLAYING", color = Sand.Dim, fontSize = 12.sp, letterSpacing = 2.sp)
         }
 
-        Cassette(ui, Modifier.fillMaxWidth())
+        // A new song swaps in a new cassette: forward slides left, back slides right.
+        AnimatedContent(
+            targetState = ui,
+            contentKey = { it.currentMediaId },
+            transitionSpec = {
+                val forward = targetState.trackNumber > initialState.trackNumber ||
+                    (initialState.trackNumber == initialState.trackCount && targetState.trackNumber == 1)
+                val dir = if (forward) 1 else -1
+                (slideInHorizontally(tween(350)) { it * dir } + fadeIn(tween(350)))
+                    .togetherWith(slideOutHorizontally(tween(350)) { -it * dir } + fadeOut(tween(250)))
+                    .using(SizeTransform(clip = false))
+            },
+            label = "cassetteSwap",
+        ) { state ->
+            Cassette(state, Modifier.fillMaxWidth())
+        }
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -125,12 +147,18 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
                 .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            TransportKey(KeyIcon.Prev, "Previous track", vm::previous, Modifier.weight(1f), caption = "REW")
+            TransportKey(
+                KeyIcon.Prev, "Previous track, hold to rewind", vm::previous, Modifier.weight(1f), caption = "REW",
+                onHoldStart = { vm.startScan(-1) }, onHoldEnd = vm::stopScan,
+            )
             TransportKey(
                 KeyIcon.PlayPause, if (ui.isPlaying) "Pause" else "Play", vm::togglePlay,
                 Modifier.weight(1f), latched = ui.isPlaying, caption = "PLAY", led = true,
             )
-            TransportKey(KeyIcon.Next, "Next track", vm::next, Modifier.weight(1f), caption = "FF")
+            TransportKey(
+                KeyIcon.Next, "Next track, hold to fast-forward", vm::next, Modifier.weight(1f), caption = "FF",
+                onHoldStart = { vm.startScan(1) }, onHoldEnd = vm::stopScan,
+            )
         }
     }
 }
@@ -174,7 +202,7 @@ private fun Cassette(ui: PlayerUiState, modifier: Modifier) {
                 AlbumArt(ui.artwork, Modifier.size(u * 42))
             }
 
-            TapeWindow(ui.isPlaying, ui.progress, Modifier.offset(u * 46, u * 62).size(u * 248, u * 70))
+            TapeWindow(ui.isPlaying, ui.scanDirection, ui.progress, Modifier.offset(u * 46, u * 62).size(u * 248, u * 70))
 
             Row(
                 Modifier
@@ -286,10 +314,16 @@ private fun AlbumArt(art: ImageBitmap?, modifier: Modifier) {
  * fuller reel turns slower. On pause they coast to a stop instead of freezing.
  */
 @Composable
-private fun TapeWindow(isPlaying: Boolean, progress: Float, modifier: Modifier) {
+private fun TapeWindow(isPlaying: Boolean, scan: Int, progress: Float, modifier: Modifier) {
+    // Signed speed: 1 = playing, ±6 = winding (negative turns the reels backwards), 0 = stopped.
+    val target = when {
+        scan != 0 -> 6f * scan
+        isPlaying -> 1f
+        else -> 0f
+    }
     val speed by animateFloatAsState(
-        if (isPlaying) 1f else 0f,
-        tween(if (isPlaying) 400 else 900, easing = LinearOutSlowInEasing),
+        target,
+        tween(if (target == 0f) 900 else 400, easing = LinearOutSlowInEasing),
         label = "reelSpeed",
     )
     val leftFrac = 0.204f + 0.204f * (1f - progress) // tape pack radius, as a fraction of window height
@@ -301,7 +335,7 @@ private fun TapeWindow(isPlaying: Boolean, progress: Float, modifier: Modifier) 
     val l by rememberUpdatedState(leftFrac)
     val r by rememberUpdatedState(rightFrac)
 
-    val moving = speed > 0.001f
+    val moving = kotlin.math.abs(speed) > 0.001f
     LaunchedEffect(moving) {
         if (!moving) return@LaunchedEffect
         var last = 0L

@@ -33,6 +33,8 @@ data class PlayerUiState(
     val trackNumber: Int = 0,
     val trackCount: Int = 0,
     val artwork: ImageBitmap? = null,
+    /** 1 while fast-forwarding, -1 while rewinding, 0 otherwise. */
+    val scanDirection: Int = 0,
 ) {
     val progress: Float
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
@@ -58,6 +60,8 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private var ticker: Job? = null
+    private var scanJob: Job? = null
+    private var resumeAfterScan = false
     private var artKey: String? = null
     private var art: ImageBitmap? = null
 
@@ -96,6 +100,34 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(positionMs = c.currentPosition) }
     }
 
+    /** Hold FF/REW: silent fast winding, like a real deck. [direction] is 1 or -1. */
+    fun startScan(direction: Int) {
+        val c = controller ?: return
+        if (scanJob?.isActive == true) return
+        resumeAfterScan = c.isPlaying
+        c.pause()
+        _ui.update { it.copy(scanDirection = direction) }
+        scanJob = viewModelScope.launch {
+            var pos = c.currentPosition
+            while (isActive) {
+                val end = (c.duration - 500).coerceAtLeast(0)
+                pos = (pos + direction * SCAN_STEP_MS).coerceIn(0, end)
+                c.seekTo(pos)
+                _ui.update { it.copy(positionMs = pos) }
+                if (pos == 0L || pos == end) break // reached the end of the tape
+                delay(100)
+            }
+        }
+    }
+
+    fun stopScan() {
+        scanJob?.cancel()
+        scanJob = null
+        _ui.update { it.copy(scanDirection = 0) }
+        if (resumeAfterScan) controller?.play()
+        resumeAfterScan = false
+    }
+
     private fun publish(p: Player) {
         val meta = p.mediaMetadata
         val id = p.currentMediaItem?.mediaId
@@ -116,6 +148,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             trackNumber = p.currentMediaItemIndex + 1,
             trackCount = p.mediaItemCount,
             artwork = art,
+            scanDirection = _ui.value.scanDirection,
         )
         if (p.isPlaying) startTicker() else ticker?.cancel()
     }
@@ -129,6 +162,10 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
                 delay(250)
             }
         }
+    }
+
+    private companion object {
+        const val SCAN_STEP_MS = 2000L // every 100 ms → 20x speed
     }
 
     override fun onCleared() {
