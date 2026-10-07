@@ -17,6 +17,7 @@ data class Song(
     val albumId: Long,
     val track: Int, // disc * 1000 + track, as MediaStore stores it
     val folder: String, // e.g. "Music/Radiohead/OK Computer/"
+    val fileName: String,
     val durationMs: Long,
     val uri: Uri,
 )
@@ -49,6 +50,7 @@ class MusicRepository(private val context: Context) {
             MediaStore.Audio.Media.ALBUM_ID,
             MediaStore.Audio.Media.TRACK,
             MediaStore.Audio.Media.RELATIVE_PATH,
+            MediaStore.Audio.Media.DISPLAY_NAME,
         )
         // ponytail: 30s floor hides voice notes/ringtones; proper folder exclusion comes later.
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} >= ?"
@@ -65,6 +67,7 @@ class MusicRepository(private val context: Context) {
             val albumIdCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val trackCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
             val pathCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.RELATIVE_PATH)
+            val nameCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             while (c.moveToNext()) {
                 val id = c.getLong(idCol)
                 songs += Song(
@@ -76,6 +79,7 @@ class MusicRepository(private val context: Context) {
                     albumId = c.getLong(albumIdCol),
                     track = c.getInt(trackCol),
                     folder = c.getString(pathCol) ?: "",
+                    fileName = c.getString(nameCol) ?: "",
                     durationMs = c.getLong(durationCol),
                     uri = ContentUris.withAppendedId(collection, id),
                 )

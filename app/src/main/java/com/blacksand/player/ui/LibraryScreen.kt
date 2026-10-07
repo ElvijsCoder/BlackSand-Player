@@ -1,12 +1,17 @@
 package com.blacksand.player.ui
 
 import android.util.LruCache
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.util.Size
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -31,6 +36,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,12 +47,18 @@ import com.blacksand.player.PlayerUiState
 import com.blacksand.player.PlayerViewModel
 import com.blacksand.player.data.Song
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class Tab(val title: String) { Songs("SONGS"), Albums("ALBUMS"), Artists("ARTISTS"), Folders("FOLDERS") }
+private enum class Tab(val title: String) {
+    Songs("SONGS"), Albums("ALBUMS"), Artists("ARTISTS"), Folders("FOLDERS"), Playlists("PLAYLISTS")
+}
 
 /** An album, artist or folder: a titled list of songs. */
-private data class Group(val key: String, val title: String, val subtitle: String, val songs: List<Song>)
+/** [playlistId] is set for playlists, which can be edited. */
+private data class Group(
+    val key: String, val title: String, val subtitle: String, val songs: List<Song>, val playlistId: Long? = null,
+)
 
 private fun albumsOf(songs: List<Song>) = songs.groupBy { it.albumId }.map { (id, list) ->
     val artist = list.groupingBy { it.artist }.eachCount().maxBy { it.value }.key
@@ -68,6 +81,9 @@ private fun foldersOf(songs: List<Song>) = songs.groupBy { it.folder }.map { (fo
 fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit) {
     val songs by vm.songs.collectAsState()
     val ui by vm.ui.collectAsState()
+    val playlists by vm.playlists.collectAsState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var tab by rememberSaveable { mutableStateOf(Tab.Songs) }
     var searching by rememberSaveable { mutableStateOf(false) }
@@ -77,8 +93,29 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit) {
     val albums = remember(songs) { albumsOf(songs) }
     val artists = remember(songs) { artistsOf(songs) }
     val folders = remember(songs) { foldersOf(songs) }
-    val open = remember(openKey, albums, artists, folders) {
-        openKey?.let { key -> (albums + artists + folders).firstOrNull { it.key == key } }
+    val playlistGroups = remember(playlists, songs) {
+        val byId = songs.associateBy { it.id }
+        playlists.map { p ->
+            val list = p.songIds.mapNotNull { byId[it] } // songs deleted from the phone just drop out
+            Group("p:${p.id}", p.name, "${list.size} TRACKS", list, p.id)
+        }
+    }
+    val open = remember(openKey, albums, artists, folders, playlistGroups) {
+        openKey?.let { key -> (albums + artists + folders + playlistGroups).firstOrNull { it.key == key } }
+    }
+
+    // Dialogs
+    var menuFor by remember { mutableStateOf<Song?>(null) }
+    var creating by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            val (matched, total) = vm.importM3u(uri)
+            val msg = if (matched == 0) "No songs from that playlist were found on this phone"
+            else "Imported $matched of $total songs"
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
     }
     val results = remember(query, songs) {
         val q = query.trim()
@@ -105,10 +142,14 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit) {
                 )
                 Text(open.title, fontFamily = TitleFont, fontWeight = FontWeight.SemiBold, fontSize = 26.sp,
                     color = Sand.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(open.subtitle, Modifier.weight(1f), color = Sand.Dim, fontSize = 12.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Pill("PLAY") { play(open.songs, 0) }
+                Text(open.subtitle, Modifier.padding(top = 4.dp), color = Sand.Dim, fontSize = 12.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(Modifier.padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Pill("PLAY", enabled = open.songs.isNotEmpty()) { play(open.songs, 0) }
+                    if (open.playlistId != null) {
+                        Pill("RENAME") { renaming = true }
+                        Pill("DELETE") { deleting = true }
+                    }
                 }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -122,7 +163,10 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit) {
                 if (searching) {
                     SearchField(query, { query = it })
                 } else {
-                    Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    Row(
+                        Modifier.padding(top = 12.dp).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
                         Tab.entries.forEach { t ->
                             TabLabel(t.title, t == tab) { tab = t }
                         }
@@ -133,17 +177,30 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit) {
         }
 
         Box(Modifier.weight(1f)) {
+            val onMore: (Song) -> Unit = { menuFor = it }
             when {
-                open != null -> SongList(open.songs, ui) { play(open.songs, it) }
+                open != null -> if (open.songs.isEmpty()) {
+                    Hint("Empty for now. Use ⋯ on any song to add it here.")
+                } else {
+                    SongList(open.songs, ui, onMore) { play(open.songs, it) }
+                }
                 searching -> if (query.isBlank()) {
                     Hint("Search songs, artists and albums.")
                 } else if (results.isEmpty()) {
                     Hint("Nothing matches \"${query.trim()}\".")
                 } else {
-                    SongList(results, ui) { play(results, it) }
+                    SongList(results, ui, onMore) { play(results, it) }
+                }
+                tab == Tab.Playlists -> Column {
+                    Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Pill("+ NEW") { creating = true }
+                        Pill("IMPORT M3U") { importer.launch(arrayOf("*/*")) }
+                    }
+                    if (playlistGroups.isEmpty()) Hint("No playlists yet. Tap + NEW, or ⋯ on any song.")
+                    else GroupList(playlistGroups) { openKey = it.key }
                 }
                 songs.isEmpty() -> Hint("No music found on this phone yet.")
-                tab == Tab.Songs -> SongList(songs, ui) { play(songs, it) }
+                tab == Tab.Songs -> SongList(songs, ui, onMore) { play(songs, it) }
                 else -> GroupList(
                     when (tab) { Tab.Albums -> albums; Tab.Artists -> artists; else -> folders },
                 ) { openKey = it.key }
@@ -152,6 +209,30 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit) {
 
         if (ui.currentMediaId != null) MiniPlayer(ui, vm, onOpenPlayer)
         else Spacer(Modifier.navigationBarsPadding())
+    }
+
+    menuFor?.let { song ->
+        SongMenu(song, playlists, open?.playlistId, vm, onDismiss = { menuFor = null })
+    }
+    if (creating) {
+        NameDialog("New playlist", "", onDismiss = { creating = false }) { name ->
+            vm.createPlaylist(name)
+            creating = false
+        }
+    }
+    val openPlaylist = open?.playlistId
+    if (renaming && open != null && openPlaylist != null) {
+        NameDialog("Rename playlist", open.title, onDismiss = { renaming = false }) { name ->
+            vm.renamePlaylist(openPlaylist, name)
+            renaming = false
+        }
+    }
+    if (deleting && open != null && openPlaylist != null) {
+        ConfirmDialog("Delete \"${open.title}\"? The songs stay on your phone.", "DELETE", onDismiss = { deleting = false }) {
+            vm.deletePlaylist(openPlaylist)
+            deleting = false
+            openKey = null
+        }
     }
 }
 
@@ -167,19 +248,6 @@ private fun TabLabel(title: String, selected: Boolean, onClick: () -> Unit) {
         Spacer(Modifier.height(4.dp))
         Box(Modifier.size(4.dp).clip(RoundedCornerShape(50)).background(if (selected) Sand.Red else Sand.Black))
     }
-}
-
-@Composable
-private fun Pill(label: String, onClick: () -> Unit) {
-    Text(
-        label,
-        Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(Sand.Key)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        color = Sand.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp,
-    )
 }
 
 @Composable
@@ -211,18 +279,18 @@ private fun Hint(text: String) {
 }
 
 @Composable
-private fun SongList(songs: List<Song>, ui: PlayerUiState, onPlay: (Int) -> Unit) {
+private fun SongList(songs: List<Song>, ui: PlayerUiState, onMore: (Song) -> Unit, onPlay: (Int) -> Unit) {
     LazyColumn(Modifier.fillMaxSize()) {
         itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
-            SongRow(song, isCurrent = song.id.toString() == ui.currentMediaId) { onPlay(index) }
+            SongRow(song, isCurrent = song.id.toString() == ui.currentMediaId, onMore = { onMore(song) }) { onPlay(index) }
         }
     }
 }
 
 @Composable
-private fun SongRow(song: Song, isCurrent: Boolean, onClick: () -> Unit) {
+private fun SongRow(song: Song, isCurrent: Boolean, onMore: () -> Unit, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(start = 20.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -234,6 +302,15 @@ private fun SongRow(song: Song, isCurrent: Boolean, onClick: () -> Unit) {
             Text(song.artist, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Sand.Dim)
         }
         Text(formatTime(song.durationMs), fontSize = 12.sp, color = Sand.Dim)
+        Text(
+            "⋯",
+            Modifier
+                .clip(RoundedCornerShape(50))
+                .clickable(onClick = onMore)
+                .semantics { contentDescription = "More options for ${song.title}" }
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            color = Sand.Dim, fontSize = 18.sp,
+        )
     }
 }
 
@@ -245,7 +322,7 @@ private fun GroupList(groups: List<Group>, onOpen: (Group) -> Unit) {
                 Modifier.fillMaxWidth().clickable { onOpen(group) }.padding(horizontal = 20.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CoverThumb(group.songs.first(), Modifier.size(48.dp))
+                CoverThumb(group.songs.firstOrNull(), Modifier.size(48.dp))
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(group.title, fontFamily = TitleFont, fontWeight = FontWeight.Medium, fontSize = 16.sp,
@@ -261,10 +338,10 @@ private fun GroupList(groups: List<Group>, onOpen: (Group) -> Unit) {
 private val thumbCache = LruCache<Long, ImageBitmap>(200)
 
 @Composable
-private fun CoverThumb(song: Song, modifier: Modifier) {
+private fun CoverThumb(song: Song?, modifier: Modifier) {
     val context = LocalContext.current
-    val thumb by produceState<ImageBitmap?>(thumbCache.get(song.id), song.id) {
-        if (value == null) {
+    val thumb by produceState<ImageBitmap?>(song?.let { thumbCache.get(it.id) }, song?.id) {
+        if (value == null && song != null) {
             value = withContext(Dispatchers.IO) {
                 runCatching {
                     context.contentResolver.loadThumbnail(song.uri, Size(144, 144), null).asImageBitmap()

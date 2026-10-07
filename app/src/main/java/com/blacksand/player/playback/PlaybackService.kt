@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.media3.common.AudioAttributes
@@ -13,11 +14,14 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import com.blacksand.player.data.MusicRepository
 import com.blacksand.player.data.toMediaItem
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -33,12 +37,14 @@ import kotlinx.coroutines.launch
 class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
+    private lateinit var player: ExoPlayer
+    private var sleepJob: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val prefs by lazy { getSharedPreferences("playback", Context.MODE_PRIVATE) }
+    private val prefs by lazy { getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
 
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this)
+        player = ExoPlayer.Builder(this)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -62,7 +68,16 @@ class PlaybackService : MediaSessionService() {
                     )
                 ) saveQueue(player)
             }
+
+            // "End of song" sleep: ExoPlayer paused at the end of the track, so the timer is done.
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) {
+                    this@PlaybackService.player.pauseAtEndOfMediaItems = false
+                    prefs.edit { putLong(KEY_SLEEP_END, 0) }
+                }
+            }
         })
+        prefs.edit { putLong(KEY_SLEEP_END, 0) } // a fresh service has no timer running
         restoreQueue(player)
 
         // Position changes constantly; save it every few seconds while playing.
@@ -92,6 +107,39 @@ class PlaybackService : MediaSessionService() {
         mediaSession = null
         scope.cancel()
         super.onDestroy()
+    }
+
+    /**
+     * Sleep timer. [minutes] > 0 counts down then fades out over [FADE_MS] and pauses,
+     * -1 pauses at the end of the current song, 0 cancels.
+     * The end time goes in prefs so the UI can show what's left.
+     */
+    private fun setSleep(minutes: Int) {
+        sleepJob?.cancel()
+        player.volume = 1f
+        player.pauseAtEndOfMediaItems = false
+        when {
+            minutes == 0 -> prefs.edit { putLong(KEY_SLEEP_END, 0) }
+            minutes < 0 -> {
+                player.pauseAtEndOfMediaItems = true
+                prefs.edit { putLong(KEY_SLEEP_END, -1) }
+            }
+            else -> {
+                val end = System.currentTimeMillis() + minutes * 60_000L
+                prefs.edit { putLong(KEY_SLEEP_END, end) }
+                sleepJob = scope.launch {
+                    delay(end - System.currentTimeMillis() - FADE_MS)
+                    val steps = 20
+                    for (i in steps downTo 0) {
+                        player.volume = i / steps.toFloat()
+                        delay(FADE_MS / steps)
+                    }
+                    player.pause()
+                    player.volume = 1f
+                    prefs.edit { putLong(KEY_SLEEP_END, 0) }
+                }
+            }
+        }
     }
 
     private fun saveQueue(player: Player) {
@@ -129,8 +177,30 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    // Media3 strips file URIs from items sent by a controller, so restore them here.
-    private class SessionCallback : MediaSession.Callback {
+    private inner class SessionCallback : MediaSession.Callback {
+        // Allow our own sleep-timer command on top of the standard playback commands.
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult {
+            val default = super.onConnect(session, controller)
+            return MediaSession.ConnectionResult.accept(
+                default.availableSessionCommands.buildUpon().add(SessionCommand(CMD_SLEEP, Bundle.EMPTY)).build(),
+                default.availablePlayerCommands,
+            )
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle,
+        ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction == CMD_SLEEP) setSleep(args.getInt(ARG_MINUTES))
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
+
+        // Media3 strips file URIs from items sent by a controller, so restore them here.
         override fun onAddMediaItems(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -142,11 +212,16 @@ class PlaybackService : MediaSessionService() {
             )
     }
 
-    private companion object {
-        const val KEY_QUEUE = "queue"
-        const val KEY_INDEX = "index"
-        const val KEY_POSITION = "position"
-        const val KEY_SHUFFLE = "shuffle"
-        const val KEY_REPEAT = "repeat"
+    companion object {
+        const val PREFS = "playback"
+        const val KEY_SLEEP_END = "sleepEnd"
+        const val CMD_SLEEP = "blacksand.SLEEP"
+        const val ARG_MINUTES = "minutes"
+        private const val FADE_MS = 10_000L
+        private const val KEY_QUEUE = "queue"
+        private const val KEY_INDEX = "index"
+        private const val KEY_POSITION = "position"
+        private const val KEY_SHUFFLE = "shuffle"
+        private const val KEY_REPEAT = "repeat"
     }
 }

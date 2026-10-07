@@ -2,6 +2,9 @@ package com.blacksand.player.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -24,9 +27,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,6 +72,21 @@ import com.blacksand.player.PlayerViewModel
 
 @Composable
 fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
+    var showQueue by rememberSaveable { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
+        NowPlayingDeck(vm, onClose, onQueue = { showQueue = true })
+        AnimatedVisibility(
+            visible = showQueue,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+        ) {
+            QueueSheet(vm, onClose = { showQueue = false })
+        }
+    }
+}
+
+@Composable
+private fun NowPlayingDeck(vm: PlayerViewModel, onClose: () -> Unit, onQueue: () -> Unit) {
     val ui by vm.ui.collectAsState()
     BackHandler(onBack = onClose)
 
@@ -90,7 +112,15 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
                 letterSpacing = 2.sp,
             )
             Spacer(Modifier.weight(1f))
-            Text("NOW PLAYING", color = Sand.Dim, fontSize = 12.sp, letterSpacing = 2.sp)
+            Text(
+                "QUEUE",
+                Modifier
+                    .clickable(onClick = onQueue)
+                    .padding(vertical = 12.dp),
+                color = Sand.Dim,
+                fontSize = 12.sp,
+                letterSpacing = 2.sp,
+            )
         }
 
         // A new song swaps in a new cassette: forward slides left, back slides right.
@@ -131,6 +161,15 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
                 },
                 ui.repeatMode != Player.REPEAT_MODE_OFF,
                 vm::cycleRepeat,
+            )
+            DeckToggle(
+                when {
+                    ui.sleepEnd == -1L -> "SLEEP END"
+                    ui.sleepEnd > 0L -> "SLEEP ${((ui.sleepEnd - System.currentTimeMillis()) / 60_000 + 1).coerceAtLeast(1)}m"
+                    else -> "SLEEP"
+                },
+                ui.sleepEnd != 0L,
+                vm::cycleSleep,
             )
         }
 
@@ -173,6 +212,87 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
                 onHoldStart = { vm.startScan(1) }, onHoldEnd = vm::stopScan,
             )
         }
+    }
+}
+
+/** Upcoming songs in play order. Tap to jump; reorder with ▲▼ (when not shuffled); ✕ removes. */
+@Composable
+private fun QueueSheet(vm: PlayerViewModel, onClose: () -> Unit) {
+    val queue by vm.queue.collectAsState()
+    val ui by vm.ui.collectAsState()
+    val current = ui.trackNumber - 1
+    BackHandler(onBack = onClose)
+
+    val listState = rememberLazyListState()
+    LaunchedEffect(Unit) {
+        val pos = queue.indexOfFirst { it.index == current }
+        if (pos > 0) listState.scrollToItem(pos)
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Sand.Black)
+            .pointerInput(Unit) { detectTapGestures { } }
+            .grain()
+            .systemBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("QUEUE", fontFamily = DotFont, fontSize = 32.sp, color = Sand.White)
+            Spacer(Modifier.width(12.dp))
+            Text("${queue.size} TRACKS", color = Sand.Dim, fontSize = 12.sp, letterSpacing = 2.sp)
+            Spacer(Modifier.weight(1f))
+            Text(
+                "CLOSE",
+                Modifier.clickable(onClick = onClose).padding(vertical = 12.dp),
+                color = Sand.Dim, fontSize = 12.sp, letterSpacing = 2.sp,
+            )
+        }
+        if (ui.shuffle) {
+            Text("Shuffle is on, so this is the shuffled play order. Turn shuffle off to reorder.",
+                Modifier.padding(vertical = 6.dp), color = Sand.Dim, fontSize = 12.sp)
+        }
+        LazyColumn(Modifier.fillMaxSize(), state = listState) {
+            itemsIndexed(queue, key = { _, e -> e.index }) { pos, entry ->
+                val isCurrent = entry.index == current
+                Row(
+                    Modifier.fillMaxWidth().clickable { vm.jumpTo(entry.index) }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "%02d".format(pos + 1), Modifier.width(40.dp),
+                        fontFamily = DotFont, fontSize = 18.sp, color = if (isCurrent) Sand.Red else Sand.Dim,
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(entry.title, fontFamily = TitleFont, fontWeight = FontWeight.Medium, fontSize = 15.sp,
+                            color = if (isCurrent) Sand.Red else Sand.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(entry.artist, fontSize = 11.sp, color = Sand.Dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (!ui.shuffle) {
+                        QueueButton("▲", "Move up", enabled = entry.index > 0) { vm.moveInQueue(entry.index, entry.index - 1) }
+                        QueueButton("▼", "Move down", enabled = entry.index < queue.size - 1) {
+                            vm.moveInQueue(entry.index, entry.index + 1)
+                        }
+                    }
+                    QueueButton("✕", "Remove from queue", enabled = !isCurrent) { vm.removeFromQueue(entry.index) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QueueButton(glyph: String, label: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(50))
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(glyph, color = if (enabled) Sand.Dim else Sand.Line, fontSize = 13.sp)
     }
 }
 
