@@ -51,6 +51,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
+import androidx.media3.common.Player
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,9 +98,7 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
             targetState = ui,
             contentKey = { it.currentMediaId },
             transitionSpec = {
-                val forward = targetState.trackNumber > initialState.trackNumber ||
-                    (initialState.trackNumber == initialState.trackCount && targetState.trackNumber == 1)
-                val dir = if (forward) 1 else -1
+                val dir = targetState.swapDirection
                 (slideInHorizontally(tween(350)) { it * dir } + fadeIn(tween(350)))
                     .togetherWith(slideOutHorizontally(tween(350)) { -it * dir } + fadeOut(tween(250)))
                     .using(SizeTransform(clip = false))
@@ -119,6 +119,19 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
                 color = Sand.White,
             )
             Text(ui.artist ?: "", color = Sand.Dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DeckToggle("SHUFFLE", ui.shuffle, vm::toggleShuffle)
+            DeckToggle(
+                when (ui.repeatMode) {
+                    Player.REPEAT_MODE_ALL -> "REPEAT ALL"
+                    Player.REPEAT_MODE_ONE -> "REPEAT ONE"
+                    else -> "REPEAT"
+                },
+                ui.repeatMode != Player.REPEAT_MODE_OFF,
+                vm::cycleRepeat,
+            )
         }
 
         Spacer(Modifier.weight(1f))
@@ -160,6 +173,23 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
                 onHoldStart = { vm.startScan(1) }, onHoldEnd = vm::stopScan,
             )
         }
+    }
+}
+
+/** A small deck switch: label plus a light that's red while on. */
+@Composable
+private fun DeckToggle(label: String, on: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Sand.Body)
+            .clickable(onClick = onClick)
+            .semantics { stateDescription = if (on) "On" else "Off" }
+            .padding(start = 6.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PlayLight(on, dot = 6.dp)
+        Text(label, fontSize = 11.sp, letterSpacing = 1.5.sp, color = if (on) Sand.White else Sand.Dim)
     }
 }
 

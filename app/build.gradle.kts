@@ -20,6 +20,15 @@ android {
     // Keystore comes from GitHub Secrets via env vars (see SETUP.md).
     val keystorePath = System.getenv("KEYSTORE_PATH")
     signingConfigs {
+        // A fixed debug key kept in the repo, so every CI build installs over the last one
+        // and your playlists and resume state survive updates. Not secret: it only signs
+        // this personal app, with Android's standard debug passwords.
+        getByName("debug") {
+            storeFile = file("blacksand-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         if (keystorePath != null) {
             create("release") {
                 storeFile = file(keystorePath)

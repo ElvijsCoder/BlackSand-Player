@@ -14,10 +14,9 @@ When it's green: Releases → newest "Build N" → tap the `.apk` on the phone.
 First install: allow your browser to install unknown apps.
 
 ## 3. Updating
-Each build is signed with a different throwaway key, so Android won't install
-it over the previous one. Uninstall the old version first, then install the new one.
-(Later, once the app stores playlists or stats, we'll add a fixed key so updates
-keep your data.)
+Builds are signed with a fixed key kept in the repo (`app/blacksand-debug.keystore`),
+so each new APK installs over the previous one and keeps your data.
+The very first build with this key needs one last uninstall of the old version.
 
 ## 4. Test on the 3a
 - Allow music access → songs list appears

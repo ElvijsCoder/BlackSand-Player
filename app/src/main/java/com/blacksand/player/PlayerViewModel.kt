@@ -35,6 +35,10 @@ data class PlayerUiState(
     val artwork: ImageBitmap? = null,
     /** 1 while fast-forwarding, -1 while rewinding, 0 otherwise. */
     val scanDirection: Int = 0,
+    val shuffle: Boolean = false,
+    val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    /** Which way the cassette swap slides: 1 = forward, -1 = back. */
+    val swapDirection: Int = 1,
 ) {
     val progress: Float
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
@@ -55,7 +59,14 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         app, SessionToken(app, ComponentName(app, PlaybackService::class.java))
     ).buildAsync()
 
+    // The direction of the last skip the user asked for; automatic advances always go forward.
+    private var pendingDirection = 1
+    private var swapDirection = 1
+
     private val listener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            swapDirection = if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) pendingDirection else 1
+        }
         override fun onEvents(player: Player, events: Player.Events) = publish(player)
     }
 
@@ -78,12 +89,27 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { _songs.value = repository.loadSongs() }
     }
 
-    /** Plays the whole library as the queue, starting at [index]. */
-    fun playFrom(index: Int) {
+    /** Plays [list] as the queue, starting at [index]. */
+    fun play(list: List<Song>, index: Int) {
         val c = controller ?: return
-        c.setMediaItems(_songs.value.map { it.toMediaItem() }, index, 0L)
+        pendingDirection = 1
+        c.setMediaItems(list.map { it.toMediaItem() }, index, 0L)
         c.prepare()
         c.play()
+    }
+
+    fun toggleShuffle() {
+        controller?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
+    }
+
+    /** Off → all → one → off. */
+    fun cycleRepeat() {
+        val c = controller ?: return
+        c.repeatMode = when (c.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
     }
 
     fun togglePlay() {
@@ -91,8 +117,15 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         if (c.isPlaying) c.pause() else c.play()
     }
 
-    fun next() { controller?.seekToNextMediaItem() }
-    fun previous() { controller?.seekToPrevious() }
+    fun next() {
+        pendingDirection = 1
+        controller?.seekToNextMediaItem()
+    }
+
+    fun previous() {
+        pendingDirection = -1
+        controller?.seekToPrevious()
+    }
 
     fun seekTo(fraction: Float) {
         val c = controller ?: return
@@ -149,6 +182,9 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             trackCount = p.mediaItemCount,
             artwork = art,
             scanDirection = _ui.value.scanDirection,
+            shuffle = p.shuffleModeEnabled,
+            repeatMode = p.repeatMode,
+            swapDirection = swapDirection,
         )
         if (p.isPlaying) startTicker() else ticker?.cancel()
     }
