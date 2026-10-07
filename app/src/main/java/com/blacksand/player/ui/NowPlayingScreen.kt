@@ -23,15 +23,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -40,8 +44,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.blacksand.player.PlayerUiState
@@ -56,6 +63,8 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
         Modifier
             .fillMaxSize()
             .background(Sand.Black)
+            // Swallow taps on empty space so they don't fall through to the library underneath.
+            .pointerInput(Unit) { detectTapGestures { } }
             .grain()
             .systemBarsPadding()
             .padding(20.dp),
@@ -111,60 +120,145 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(Sand.Recess)
-                .padding(6.dp),
+                .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            TransportKey(KeyIcon.Prev, "Previous track", vm::previous, Modifier.weight(1f))
+            TransportKey(KeyIcon.Prev, "Previous track", vm::previous, Modifier.weight(1f), caption = "REW")
             TransportKey(
                 KeyIcon.PlayPause, if (ui.isPlaying) "Pause" else "Play", vm::togglePlay,
-                Modifier.weight(1f), latched = ui.isPlaying,
+                Modifier.weight(1f), latched = ui.isPlaying, caption = "PLAY", led = true,
             )
-            TransportKey(KeyIcon.Next, "Next track", vm::next, Modifier.weight(1f))
+            TransportKey(KeyIcon.Next, "Next track", vm::next, Modifier.weight(1f), caption = "FF")
         }
     }
 }
 
+private val LabelLine = Color(0xFFB9B6AE)
+private val LabelEdge = Color(0xFFCFCCC5)
+private val Hole = Color(0xFF0E0E0E)
+
+/**
+ * Option A: black matte shell with screws, a hand-ruled label, the tape window cut through
+ * it, and the guide-hole section at the bottom. Laid out in the mockup's 392x250 units,
+ * scaled to the screen width.
+ */
 @Composable
 private fun Cassette(ui: PlayerUiState, modifier: Modifier) {
-    val bodyShape = RoundedCornerShape(20.dp)
-    Box(
-        modifier
-            .clip(bodyShape)
-            .background(Sand.Body)
-            .border(1.dp, Sand.Line, bodyShape)
-            .padding(12.dp)
-    ) {
-        Column(
+    BoxWithConstraints(modifier.aspectRatio(392f / 250f)) {
+        val u = maxWidth / 392f
+        val k = u.value // text scales with the cassette
+
+        Canvas(Modifier.fillMaxSize()) { drawShell() }
+
+        Box(
             Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .offset(26 * u, 18 * u)
+                .size(340 * u, 154 * u)
+                .clip(RoundedCornerShape(6 * u))
                 .background(Sand.Label)
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Row(Modifier.height(120.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                AlbumArt(ui.artwork, Modifier.size(120.dp))
-                Column(Modifier.weight(1f).fillMaxHeight()) {
-                    Text("SIDE A", color = Sand.InkDim, fontSize = 11.sp, letterSpacing = 2.sp)
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        "%02d/%02d".format(ui.trackNumber, ui.trackCount),
-                        fontFamily = DotFont,
-                        fontSize = 28.sp,
-                        color = Sand.Ink,
-                    )
+            Row(
+                Modifier.fillMaxWidth().padding(start = 12 * u, end = 12 * u, top = 8 * u),
+                horizontalArrangement = Arrangement.spacedBy(10 * u),
+            ) {
+                Text(
+                    "A", fontFamily = TitleFont, fontWeight = FontWeight.Bold,
+                    fontSize = (30 * k).sp, lineHeight = (30 * k).sp, color = Sand.Ink,
+                )
+                Column(Modifier.weight(1f)) {
+                    RuledLine(ui.title ?: "", TitleFont, FontWeight.SemiBold, (14 * k).sp, Sand.Ink, u)
+                    RuledLine(ui.artist ?: "", MonoFont, FontWeight.Normal, (11 * k).sp, Sand.InkDim, u)
                 }
+                AlbumArt(ui.artwork, Modifier.size(42 * u))
             }
-            TapeWindow(ui.isPlaying, ui.progress, Modifier.fillMaxWidth().height(96.dp))
+
+            TapeWindow(ui.isPlaying, ui.progress, Modifier.offset(46 * u, 62 * u).size(248 * u, 70 * u))
+
+            Row(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(16 * u)
+                    .background(Color(0xFF151515))
+                    .padding(horizontal = 12 * u),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("TYPE I · NORMAL", color = LabelEdge, fontSize = (8 * k).sp, letterSpacing = (1.8f * k).sp)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "%02d/%02d".format(ui.trackNumber, ui.trackCount),
+                    fontFamily = DotFont, color = LabelEdge, fontSize = (10 * k).sp,
+                )
+            }
         }
+    }
+}
+
+/** A line of "handwriting" on the label, sitting on a ruled line. */
+@Composable
+private fun RuledLine(text: String, family: FontFamily, weight: FontWeight, textSize: TextUnit, color: Color, u: Dp) {
+    Text(
+        text,
+        Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                drawLine(LabelLine, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+            }
+            .padding(vertical = 2 * u),
+        fontFamily = family,
+        fontWeight = weight,
+        fontSize = textSize,
+        color = color,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+/** Shell, screws and the bottom guide-hole section, in 392x250 mockup units. */
+private fun DrawScope.drawShell() {
+    val u = size.width / 392f
+    val corner = CornerRadius(14 * u)
+    drawRoundRect(Brush.verticalGradient(listOf(Color(0xFF1C1C1C), Color(0xFF121212))), cornerRadius = corner)
+    drawRoundRect(Color(0xFF2A2A2A), cornerRadius = corner, style = Stroke(1.dp.toPx()))
+
+    // Bottom section: a trapezoid with two guide holes, three small holes and visible tape.
+    val top = 194 * u
+    val bottom = size.height
+    drawPath(
+        Path().apply {
+            moveTo(89.4f * u, top); lineTo(302.6f * u, top)
+            lineTo(326 * u, bottom); lineTo(66 * u, bottom); close()
+        },
+        Color(0xFF0F0F0F),
+    )
+    for (x in listOf(117.7f, 274.3f)) {
+        drawCircle(Color(0xFF050505), 7.5f * u, Offset(x * u, 215.5f * u))
+        drawCircle(Color(0xFF262626), 8.5f * u, Offset(x * u, 215.5f * u), style = Stroke(2 * u))
+    }
+    for ((x, w) in listOf(167f to 8f, 189f to 14f, 217f to 8f)) {
+        drawRect(Color(0xFF050505), Offset(x * u, 212 * u), Size(w * u, 8 * u))
+    }
+    drawRect(Color(0xFF3A332E), Offset(86.8f * u, 238 * u), Size(218.4f * u, 5 * u))
+
+    // Five screws, each slot at its own angle.
+    listOf(
+        Triple(14.5f, 14.5f, 35f), Triple(377.5f, 14.5f, -20f), Triple(14.5f, 235.5f, 70f),
+        Triple(377.5f, 235.5f, 10f), Triple(196f, 235.5f, -45f),
+    ).forEach { (x, y, a) ->
+        val c = Offset(x * u, y * u)
+        drawCircle(
+            Brush.radialGradient(listOf(Color(0xFF4A4A4A), Color(0xFF161616)), center = c - Offset(2 * u, 2 * u), radius = 6 * u),
+            5.5f * u, c,
+        )
+        rotate(a, c) { drawRect(Color(0xFF0A0A0A), Offset(c.x - 3.5f * u, c.y - 0.75f * u), Size(7 * u, 1.5f * u)) }
     }
 }
 
 @Composable
 private fun AlbumArt(art: ImageBitmap?, modifier: Modifier) {
-    Box(modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFFCFCCC5))) {
+    Box(modifier.clip(RoundedCornerShape(3.dp)).background(LabelEdge)) {
         if (art != null) {
             // ponytail: greyscale for now; true dot-matrix dithering is a later feature.
             Image(
@@ -175,11 +269,11 @@ private fun AlbumArt(art: ImageBitmap?, modifier: Modifier) {
             )
         } else {
             Canvas(Modifier.fillMaxSize()) { // no cover: a dot-screen "horizon"
-                val step = 6.dp.toPx()
+                val step = 4.dp.toPx()
                 var y = size.height * 0.45f
                 while (y < size.height) {
                     var x = step / 2
-                    while (x < size.width) { drawCircle(Sand.Ink, 1.4.dp.toPx(), Offset(x, y)); x += step }
+                    while (x < size.width) { drawCircle(Sand.Ink, 1.dp.toPx(), Offset(x, y)); x += step }
                     y += step
                 }
             }
@@ -188,8 +282,8 @@ private fun AlbumArt(art: ImageBitmap?, modifier: Modifier) {
 }
 
 /**
- * Two reels. Tape moves from left to right with progress. Like real tape, the fuller
- * reel turns slower. On pause they coast to a stop instead of freezing.
+ * The tape window: two reels, tape moving left to right with progress. Like real tape, the
+ * fuller reel turns slower. On pause they coast to a stop instead of freezing.
  */
 @Composable
 private fun TapeWindow(isPlaying: Boolean, progress: Float, modifier: Modifier) {
@@ -198,8 +292,8 @@ private fun TapeWindow(isPlaying: Boolean, progress: Float, modifier: Modifier) 
         tween(if (isPlaying) 400 else 900, easing = LinearOutSlowInEasing),
         label = "reelSpeed",
     )
-    val leftFrac = 0.32f + 0.16f * (1f - progress) // reel radius as a fraction of window height
-    val rightFrac = 0.32f + 0.16f * progress
+    val leftFrac = 0.204f + 0.204f * (1f - progress) // tape pack radius, as a fraction of window height
+    val rightFrac = 0.204f + 0.204f * progress
 
     var leftAngle by remember { mutableFloatStateOf(20f) }
     var rightAngle by remember { mutableFloatStateOf(75f) }
@@ -215,52 +309,58 @@ private fun TapeWindow(isPlaying: Boolean, progress: Float, modifier: Modifier) 
             withFrameNanos { now ->
                 if (last != 0L) {
                     val dt = (now - last) / 1e9f
-                    leftAngle = (leftAngle + currentSpeed * dt * 55f / l) % 360f
-                    rightAngle = (rightAngle + currentSpeed * dt * 55f / r) % 360f
+                    leftAngle = (leftAngle + currentSpeed * dt * 40f / l) % 360f
+                    rightAngle = (rightAngle + currentSpeed * dt * 40f / r) % 360f
                 }
                 last = now
             }
         }
     }
 
-    Canvas(modifier.clip(RoundedCornerShape(50)).background(Color(0xFF0E0E0E))) {
+    Canvas(modifier) {
         val h = size.height
-        val cy = h / 2
-        val left = Offset(h * 0.6f, cy)
-        val right = Offset(size.width - h * 0.6f, cy)
-
-        drawLine(
-            Color(0xFF3A332E),
-            Offset(left.x, cy + leftFrac * h), Offset(right.x, cy + rightFrac * h),
-            strokeWidth = 2.dp.toPx(),
-        )
-        drawCircle(Color(0xFF2B2B2B), leftFrac * h, left)
-        drawCircle(Color(0xFF2B2B2B), rightFrac * h, right)
-        hub(left, leftAngle)
-        hub(right, rightAngle)
-
-        val ww = size.width * 0.22f
+        val pill = CornerRadius(h / 2)
+        val edge = h * 3f / 70f
+        drawRoundRect(LabelEdge, cornerRadius = pill) // the label's edge around the cut-out
         drawRoundRect(
-            Color(0xFF1A1A1A),
-            topLeft = Offset(size.width / 2 - ww / 2, cy - h * 0.17f),
-            size = Size(ww, h * 0.34f),
-            cornerRadius = CornerRadius(3.dp.toPx()),
+            Hole, topLeft = Offset(edge, edge), size = Size(size.width - 2 * edge, h - 2 * edge),
+            cornerRadius = CornerRadius(h / 2 - edge),
         )
+
+        val cy = h / 2
+        val left = Offset(h * 0.53f, cy)
+        val right = Offset(size.width - h * 0.53f, cy)
+
+        // Small centre window with the tape running along its bottom.
+        val ww = h
+        val wh = h * 0.4f
+        val wx = size.width / 2 - ww / 2
+        drawRect(Color(0xFF161616), Offset(wx, cy - wh / 2), Size(ww, wh))
+        var sx = wx + h * 0.086f
+        while (sx < wx + ww) { drawRect(Color(0xFF1B1B1B), Offset(sx, cy - wh / 2), Size(h * 0.014f, wh)); sx += h * 0.1f }
+        drawRect(Color(0xFF3A332E), Offset(wx, cy + wh / 2 - h * 0.071f), Size(ww, h * 0.071f))
+        drawRect(Color(0xFF2C2C2C), Offset(wx, cy - wh / 2), Size(ww, wh), style = Stroke(1.dp.toPx()))
+
+        for ((c, frac, angle) in listOf(Triple(left, leftFrac, leftAngle), Triple(right, rightFrac, rightAngle))) {
+            drawCircle(Color(0xFF2A2420), frac * h, c)
+            drawCircle(Color(0xFF3A312B), frac * h - h * 0.051f, c, style = Stroke(1.dp.toPx()))
+            hub(c, angle, h)
+        }
     }
 }
 
-private fun DrawScope.hub(c: Offset, angle: Float) {
-    val r = size.height * 0.14f
-    val hole = Color(0xFF0E0E0E)
-    drawCircle(Sand.White, r, c)
-    rotate(angle, pivot = c) {
-        repeat(3) { i ->
-            rotate(i * 120f, pivot = c) {
-                drawRect(hole, Offset(c.x - r * 0.12f, c.y - r * 0.92f), Size(r * 0.24f, r * 0.42f))
-            }
+/** Reel hub: white ring, drive teeth pointing into the hole, three spoke holes. */
+private fun DrawScope.hub(c: Offset, angle: Float, h: Float) {
+    drawCircle(Sand.White, 0.173f * h, c)
+    drawCircle(Hole, 0.092f * h, c)
+    repeat(6) { i ->
+        rotate(angle + i * 60f, c) {
+            drawRect(Sand.White, Offset(c.x - 0.0155f * h, c.y - 0.092f * h), Size(0.031f * h, 0.041f * h))
         }
     }
-    drawCircle(hole, r * 0.32f, c)
+    repeat(3) { i ->
+        rotate(angle + 30f + i * 120f, c) { drawCircle(Hole, 0.0245f * h, Offset(c.x, c.y - 0.128f * h)) }
+    }
 }
 
 /** Progress as a tide line: white foam creeping along the black. Tap or drag to seek. */

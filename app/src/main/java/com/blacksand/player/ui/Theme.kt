@@ -70,13 +70,22 @@ fun BlackSandTheme(content: @Composable () -> Unit) {
     )
 }
 
-// One small random tile, drawn repeated over the content: film grain for almost no cost.
+// Old-film grain: soft random values in small clumps, kept faint.
+// Tune GRAIN_ALPHA (strength) and GRAIN_CLUMP (coarseness, in pixels).
+private const val GRAIN_ALPHA = 11
+private const val GRAIN_CLUMP = 3
+
 private val grainTile: ImageBitmap by lazy {
-    val size = 128
+    val cells = 80
+    val size = cells * GRAIN_CLUMP
     val rnd = java.util.Random(7)
-    val pixels = IntArray(size * size) {
-        val v = rnd.nextInt(256)
-        (20 shl 24) or (v shl 16) or (v shl 8) or v
+    val pixels = IntArray(size * size)
+    for (cy in 0 until cells) for (cx in 0 until cells) {
+        val v = (rnd.nextInt(256) + rnd.nextInt(256)) / 2 // averaged = softer, film-like
+        val argb = (GRAIN_ALPHA shl 24) or (v shl 16) or (v shl 8) or v
+        for (dy in 0 until GRAIN_CLUMP) for (dx in 0 until GRAIN_CLUMP) {
+            pixels[(cy * GRAIN_CLUMP + dy) * size + cx * GRAIN_CLUMP + dx] = argb
+        }
     }
     Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888).asImageBitmap()
 }

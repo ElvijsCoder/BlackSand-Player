@@ -9,12 +9,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,8 +28,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.lerp
@@ -35,12 +41,14 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 enum class KeyIcon { Prev, PlayPause, Next }
 
 /**
- * A cassette-deck key: sinks in while pressed, clicks on press and release.
- * [latched] keeps it down (the play key while music plays).
+ * A tall piano key from an old tape deck: sinks in while pressed, clicks on press and release.
+ * [latched] keeps it down (the play key while music plays). [caption] is the engraved label,
+ * [led] adds a red light next to it that's lit while latched.
  */
 @Composable
 fun TransportKey(
@@ -49,12 +57,14 @@ fun TransportKey(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     latched: Boolean = false,
-    height: Dp = 56.dp,
+    height: Dp = 72.dp,
+    caption: String? = null,
+    led: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val down = pressed || latched
-    val travel by animateDpAsState(if (down) 3.dp else 0.dp, tween(90), label = "keyTravel")
+    val travel by animateDpAsState(if (down) 4.dp else 0.dp, tween(90), label = "keyTravel")
 
     val view = LocalView.current
     var wasPressed by remember { mutableStateOf(false) }
@@ -67,24 +77,40 @@ fun TransportKey(
         }
     }
 
-    val shape = RoundedCornerShape(11.dp)
+    val shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
+    val face = if (down) {
+        Brush.verticalGradient(listOf(Color(0xFF1A1A1A), Color(0xFF141414)))
+    } else {
+        Brush.verticalGradient(0f to Color(0xFF2C2C2C), 0.35f to Color(0xFF1E1E1E), 1f to Color(0xFF161616))
+    }
+
     Box(
         modifier
             .height(height)
             .clip(shape)
-            .background(Color.Black) // the key's "shadow" shows below it when raised
+            .background(Color.Black) // the key's shadow, visible below it while raised
             .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label },
     ) {
-        Box(
+        Column(
             Modifier
                 .fillMaxWidth()
-                .height(height - 3.dp)
+                .height(height - 5.dp)
                 .offset(y = travel)
                 .clip(shape)
-                .background(if (down) Sand.KeyDown else Sand.Key),
-            contentAlignment = Alignment.Center,
+                .background(face)
+                .drawBehind { // light catching the top edge
+                    if (!down) drawLine(Color(0xFF3C3C3C), Offset(0f, 0.5f), Offset(size.width, 0.5f), 1.dp.toPx())
+                },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
         ) {
+            if (caption != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (led) PlayLight(latched, dot = 6.dp)
+                    Text(caption, fontSize = 9.sp, letterSpacing = 2.sp, color = Sand.Dim)
+                }
+            }
             KeyGlyph(icon, if (down) Color.White else Sand.White)
         }
     }
