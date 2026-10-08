@@ -16,11 +16,18 @@ import kotlin.math.tanh
  * wow and flutter (slow and fast pitch wobble from a modulated delay), a gentle
  * high-end roll-off, soft saturation, and a little hiss.
  * [amount] 0 = off, 1 = light, 2 = worn. Changes blend in smoothly, no clicks.
+ * It also handles the backwards sound while rewinding (see [reverseGrainMs]).
  */
 @UnstableApi
 class TapeProcessor : BaseAudioProcessor() {
 
     @Volatile var amount = 0
+
+    /** Rewind cue: when > 0, audio is gathered in grains this long and each grain is played backwards. */
+    @Volatile var reverseGrainMs = 0
+    private var work = FloatArray(0)
+    private var block = FloatArray(0)
+    private var blockFill = 0
 
     private var sampleRate = 44_100
     private var channels = 2
@@ -46,7 +53,9 @@ class TapeProcessor : BaseAudioProcessor() {
         val frames = inputBuffer.remaining() / frameBytes
         if (frames == 0) return
         val input = inputBuffer.order(ByteOrder.nativeOrder())
-        val out = replaceOutputBuffer(frames * frameBytes)
+        val samples = frames * channels
+        if (work.size < samples) work = FloatArray(samples)
+        var w = 0
 
         val target = when (amount) { 1 -> 0.6f; 2 -> 1f; else -> 0f }
 
@@ -63,8 +72,7 @@ class TapeProcessor : BaseAudioProcessor() {
                 for (ch in 0 until channels) {
                     val line = delay[ch]
                     line[writePos and (delayLen - 1)] = input.short / 32768f
-                    val dry = line[(writePos - baseDelay.toInt()) and (delayLen - 1)]
-                    out.putShort((dry * 32767f).toInt().coerceIn(-32768, 32767).toShort())
+                    work[w++] = line[(writePos - baseDelay.toInt()) and (delayLen - 1)]
                 }
                 writePos = (writePos + 1) and (delayLen - 1)
                 continue
@@ -91,14 +99,49 @@ class TapeProcessor : BaseAudioProcessor() {
 
                 // Blend dry ↔ tape so switching is smooth. Dry is delayed too, so both line up.
                 val dry = line[(writePos - baseDelay.toInt()) and (delayLen - 1)]
-                val outV = dry + (y - dry) * mix
-                out.putShort((outV * 32767f).toInt().coerceIn(-32768, 32767).toShort())
+                work[w++] = dry + (y - dry) * mix
             }
             writePos = (writePos + 1) and (delayLen - 1)
             phase += 1.0
             if (phase > sr * 1000) phase = 0.0
         }
         inputBuffer.position(inputBuffer.limit()) // drop any stray partial frame
+        emit(samples)
+    }
+
+    private fun pcm(v: Float): Short = (v * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+
+    /** Writes the processed samples out: straight through, or grain by grain backwards while rewinding. */
+    private fun emit(samples: Int) {
+        val grainFrames = reverseGrainMs * sampleRate / 1000
+        if (grainFrames == 0) {
+            blockFill = 0
+            val out = replaceOutputBuffer(samples * 2)
+            for (i in 0 until samples) out.putShort(pcm(work[i]))
+            out.flip()
+            return
+        }
+        val need = grainFrames * channels
+        if (block.size != need) {
+            block = FloatArray(need)
+            blockFill = 0
+        }
+        val complete = (blockFill + samples) / need
+        val out = replaceOutputBuffer(complete * need * 2)
+        var i = 0
+        while (i < samples) {
+            val n = minOf(need - blockFill, samples - i)
+            System.arraycopy(work, i, block, blockFill, n)
+            blockFill += n
+            i += n
+            if (blockFill == need) {
+                // Frames in reverse order, channels kept in place within each frame.
+                for (fr in grainFrames - 1 downTo 0) {
+                    for (ch in 0 until channels) out.putShort(pcm(block[fr * channels + ch]))
+                }
+                blockFill = 0
+            }
+        }
         out.flip()
     }
 
@@ -109,6 +152,7 @@ class TapeProcessor : BaseAudioProcessor() {
     }
 
     override fun onFlush() {
+        blockFill = 0
         delay = Array(MAX_CHANNELS) { FloatArray(delayLen) }
         lowpass.fill(0f)
         writePos = 0
