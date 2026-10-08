@@ -101,6 +101,7 @@ fun TransportKey(
             view.performHapticFeedback(
                 if (pressed) HapticFeedbackConstants.KEYBOARD_PRESS else HapticFeedbackConstants.KEYBOARD_RELEASE
             )
+            if (pressed) { if (icon == KeyIcon.PlayPause) DeckSounds.latch() else DeckSounds.click() }
             wasPressed = pressed
         }
     }

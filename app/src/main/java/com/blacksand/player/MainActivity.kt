@@ -38,6 +38,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        DeckSounds.init(this)
         setContent { BlackSandTheme { AppRoot(viewModel) } }
         if (savedInstanceState == null) viewModel.handleShortcut(intent?.action)
     }

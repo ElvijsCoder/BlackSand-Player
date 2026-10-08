@@ -146,6 +146,44 @@ fun SettingsScreen(vm: PlayerViewModel, onClose: () -> Unit) {
             }
         }
 
+        // --- Deck ---
+        item { Section("DECK") }
+        item {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = vm::cycleTapeMode)
+                    .semantics { stateDescription = listOf("Off", "Light", "Worn")[s.tapeMode] }
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Tape mode", fontFamily = TitleFont, fontWeight = FontWeight.Medium, fontSize = 16.sp, color = Sand.White)
+                    Text("Warm cassette sound: softer highs, a little hiss and the gentle wobble of a tape motor. Tap to change.",
+                        fontSize = 12.sp, color = Sand.Dim)
+                }
+                Spacer(Modifier.width(12.dp))
+                Row(
+                    Modifier.clip(RoundedCornerShape(8.dp)).background(Sand.Body).padding(start = 6.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PlayLight(s.tapeMode > 0, dot = 6.dp)
+                    Text(listOf("OFF", "LIGHT", "WORN")[s.tapeMode], fontSize = 11.sp, letterSpacing = 1.5.sp,
+                        color = if (s.tapeMode > 0) Sand.White else Sand.Dim)
+                }
+            }
+        }
+        item {
+            SettingSwitch("Deck sounds", "Key clicks, the play latch and the motor whirr while winding.", s.soundFx, vm::setSoundFx)
+        }
+        item {
+            SettingSwitch("Flip to pause", "Put the phone face down to pause; turn it back over to carry on.", s.flipPause, vm::setFlipPause)
+        }
+        item {
+            SettingSwitch("Dot-matrix covers", "Prints the cover on the cassette label in dots. Off shows a greyscale photo.",
+                s.dotArt, vm::setDotArt)
+        }
+
         // --- Library ---
         item { Section("LIBRARY") }
         item {

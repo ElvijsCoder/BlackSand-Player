@@ -2,6 +2,10 @@ package com.blacksand.player.playback
 
 import android.Manifest
 import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
@@ -23,12 +27,16 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.blacksand.player.data.MusicRepository
+import com.blacksand.player.data.DotArt
 import com.blacksand.player.data.ListeningStats
 import com.blacksand.player.data.Settings
 import com.blacksand.player.data.SongStat
@@ -55,6 +63,7 @@ import kotlin.math.pow
  * Bluetooth/headphone buttons and foreground-service handling for free.
  * Also remembers the queue and position so playback resumes after the app is killed.
  */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
@@ -69,6 +78,34 @@ class PlaybackService : MediaSessionService() {
     private var trackGainDb: Float? = null // ReplayGain of the current track, if tagged
     private var baseVolume = 1f // player volume after normalization; the sleep fade scales this
     private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> applySound() }
+
+    private val tapeProcessor = TapeProcessor()
+
+    // Flip to pause: face down pauses; face up again resumes.
+    private val sensors by lazy { getSystemService(SensorManager::class.java) }
+    private var flipListening = false
+    private var flipPaused = false
+    private var faceDownSince = 0L
+    private val flipListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val z = event.values[2]
+            val now = SystemClock.elapsedRealtime()
+            if (z < -8.5f) {
+                if (faceDownSince == 0L) faceDownSince = now
+                if (player.isPlaying && now - faceDownSince > 700) {
+                    player.pause()
+                    flipPaused = true
+                }
+            } else {
+                faceDownSince = 0L
+                if (z > 5f && flipPaused) {
+                    flipPaused = false
+                    player.play()
+                }
+            }
+        }
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
 
     // Listening stats: a play counts once 30 s (or half a short song) has been heard.
     private val statsStore by lazy { StatsStore(this) }
@@ -85,7 +122,19 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        player = ExoPlayer.Builder(this)
+        // Tape mode sits in the audio pipeline permanently; it passes sound through untouched when off.
+        val renderers = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean,
+            ): AudioSink = DefaultAudioSink.Builder(context)
+                .setAudioProcessors(arrayOf(tapeProcessor))
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .build()
+        }
+        player = ExoPlayer.Builder(this, renderers)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -138,6 +187,8 @@ class PlaybackService : MediaSessionService() {
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying) saveStats()
+                if (isPlaying) flipPaused = false
+                updateFlipSensor()
             }
             override fun onAudioSessionIdChanged(audioSessionId: Int) = setupEffects()
             override fun onTracksChanged(tracks: Tracks) {
@@ -189,6 +240,8 @@ class PlaybackService : MediaSessionService() {
         pushWidget(stopped = true)
         settings.unregisterOnSharedPreferenceChangeListener(settingsListener)
         releaseEffects()
+        flipPaused = false
+        updateFlipSensor(forceOff = true)
         stats?.let { statsStore.write(statsStore.toJson(it)) } // small file; written directly while shutting down
         mediaSession?.run {
             saveQueue(player)
@@ -260,7 +313,25 @@ class PlaybackService : MediaSessionService() {
         loudness?.release(); loudness = null
     }
 
+    /** The flip sensor only runs while playing, or while waiting to resume after a flip. */
+    private fun updateFlipSensor(forceOff: Boolean = false) {
+        val want = !forceOff && settings.getBoolean(Settings.FLIP_PAUSE, false) && (player.isPlaying || flipPaused)
+        if (want == flipListening) return
+        val gravity = sensors?.getDefaultSensor(Sensor.TYPE_GRAVITY) ?: sensors?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        if (want && gravity != null) {
+            sensors?.registerListener(flipListener, gravity, SensorManager.SENSOR_DELAY_NORMAL)
+            flipListening = true
+        } else if (!want) {
+            sensors?.unregisterListener(flipListener)
+            flipListening = false
+            faceDownSince = 0L
+        }
+    }
+
     private fun applySound() {
+        tapeProcessor.amount = settings.getInt(Settings.TAPE_MODE, 0)
+        updateFlipSensor()
+        if (!settings.getBoolean(Settings.FLIP_PAUSE, false)) flipPaused = false
         equalizer?.let { eq ->
             runCatching {
                 val levels = settings.getString(Settings.EQ_LEVELS, null)?.split(",")?.mapNotNull { it.toIntOrNull() }
@@ -419,11 +490,15 @@ class PlaybackService : MediaSessionService() {
 
     private fun pushWidget(stopped: Boolean = false) {
         val meta = player.mediaMetadata
-        val key = "${player.currentMediaItem?.mediaId}:${meta.artworkData?.size}"
+        val dots = settings.getBoolean(Settings.DOT_ART, true)
+        val key = "${player.currentMediaItem?.mediaId}:${meta.artworkData?.size}:$dots"
         if (key != widgetArtKey) {
             widgetArtKey = key
-            widgetArt = meta.artworkData?.let { greyThumb(it) }
+            widgetArt = meta.artworkData?.let { bytes ->
+                greyThumb(bytes)?.let { if (dots) DotArt.render(it, cells = 16, sizePx = 160) else it }
+            }
         }
+        val sideB = prefs.getInt(KEY_TAPE_SIDE_B, -1)
         val state = WidgetState(
             title = meta.title?.toString(),
             artist = meta.artist?.toString(),
@@ -433,6 +508,7 @@ class PlaybackService : MediaSessionService() {
             track = player.currentMediaItemIndex + 1,
             count = player.mediaItemCount,
             art = widgetArt,
+            side = if (sideB >= 0 && player.currentMediaItemIndex >= sideB) "B" else "A",
         )
         CassetteWidget.push(this, state)
         if (state.title != null) CassetteWidget.saveSnapshot(this, state)
@@ -501,6 +577,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     companion object {
+        /** Queue index where Side B of the playing mixtape starts, or -1. Written by the UI. */
+        const val KEY_TAPE_SIDE_B = "tapeSideB"
         private val REPLAY_GAIN = Regex("REPLAYGAIN_TRACK_GAIN\\D*?([-+]?\\d+(?:\\.\\d+)?)", RegexOption.IGNORE_CASE)
         const val PREFS = "playback"
         const val KEY_SLEEP_END = "sleepEnd"

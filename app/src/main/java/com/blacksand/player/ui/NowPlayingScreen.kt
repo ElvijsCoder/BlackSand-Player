@@ -210,7 +210,8 @@ private fun NowPlayingDeck(vm: PlayerViewModel, onClose: () -> Unit, onQueue: ()
         ) {
             TransportKey(
                 KeyIcon.Prev, "Previous track, hold to rewind", vm::previous, Modifier.weight(1f), caption = "REW",
-                onHoldStart = { vm.startScan(-1) }, onHoldEnd = vm::stopScan,
+                onHoldStart = { vm.startScan(-1); DeckSounds.startWind(forward = false) },
+                onHoldEnd = { vm.stopScan(); DeckSounds.stopWind() },
             )
             TransportKey(
                 KeyIcon.PlayPause, if (ui.isPlaying) "Pause" else "Play", vm::togglePlay,
@@ -218,7 +219,8 @@ private fun NowPlayingDeck(vm: PlayerViewModel, onClose: () -> Unit, onQueue: ()
             )
             TransportKey(
                 KeyIcon.Next, "Next track, hold to fast-forward", vm::next, Modifier.weight(1f), caption = "FF",
-                onHoldStart = { vm.startScan(1) }, onHoldEnd = vm::stopScan,
+                onHoldStart = { vm.startScan(1); DeckSounds.startWind(forward = true) },
+                onHoldEnd = { vm.stopScan(); DeckSounds.stopWind() },
             )
         }
     }

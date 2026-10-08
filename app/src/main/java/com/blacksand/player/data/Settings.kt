@@ -17,6 +17,10 @@ object Settings {
     const val BASS = "bass" // 0..1000
     const val NORMALIZE = "normalize" // use ReplayGain tags
     const val FADE_SECONDS = "fade_seconds" // fade between songs: 0 = off
+    const val TAPE_MODE = "tape_mode" // 0 = off, 1 = light, 2 = worn
+    const val SOUND_FX = "sound_fx" // deck key and winding sounds, on by default
+    const val FLIP_PAUSE = "flip_pause" // face down pauses, face up resumes
+    const val DOT_ART = "dot_art" // dot-matrix covers on the cassette label, on by default
     const val SKIP_SHORT = "skip_short" // hide clips under 30 s
     const val EXCLUDED = "excluded_folders"
 

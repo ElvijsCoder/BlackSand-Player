@@ -20,7 +20,7 @@ import com.blacksand.player.R
 import com.blacksand.player.playback.PlaybackService
 import com.blacksand.player.ui.formatTime
 
-/** What the widget shows. Built by the playback service; [art] is already greyscale. */
+/** What the widget shows. Built by the playback service; [art] is already greyscale or dot-matrix. */
 data class WidgetState(
     val title: String?,
     val artist: String?,
@@ -30,6 +30,7 @@ data class WidgetState(
     val track: Int,
     val count: Int,
     val art: Bitmap? = null,
+    val side: String = "A",
 )
 
 /**
@@ -88,6 +89,7 @@ class CassetteWidget : AppWidgetProvider() {
             val large = layout == R.layout.widget_large
             val progress = if (s.durationMs > 0) (s.positionMs.toFloat() / s.durationMs).coerceIn(0f, 1f) else 0f
 
+            v.setTextViewText(R.id.side, s.side)
             v.setTextViewText(R.id.title, s.title ?: context.getString(R.string.widget_idle_title))
             v.setTextViewText(R.id.artist, s.artist ?: "")
             if (s.art != null) v.setImageViewBitmap(R.id.art, s.art)

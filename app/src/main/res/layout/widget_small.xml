@@ -84,6 +84,7 @@
                     android:layout_height="wrap_content"
                     android:fontFamily="@font/space_grotesk"
                     android:includeFontPadding="false"
+                    android:id="@+id/side"
                     android:text="A"
                     android:textColor="#111111"
                     android:textSize="15sp"

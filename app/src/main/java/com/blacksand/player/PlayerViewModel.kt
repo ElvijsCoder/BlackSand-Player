@@ -19,6 +19,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
+import com.blacksand.player.data.DotArt
 import com.blacksand.player.data.ListeningStats
 import com.blacksand.player.data.MusicRepository
 import com.blacksand.player.data.Playlist
@@ -79,6 +80,10 @@ data class SettingsState(
     val bass: Int = 0, // 0..1000
     val normalize: Boolean = false,
     val fadeSeconds: Int = 0,
+    val tapeMode: Int = 0,
+    val soundFx: Boolean = true,
+    val flipPause: Boolean = false,
+    val dotArt: Boolean = true,
     val skipShort: Boolean = true,
     val excluded: Set<String> = emptySet(),
     val folders: List<Pair<String, Int>> = emptyList(), // every music folder with its song count
@@ -107,7 +112,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     val stats = _stats.asStateFlow()
 
     /** When a mixtape is playing: the queue index where Side B starts. */
-    private var sideBStart: Int? = null
+    private var sideBStart: Int? = prefs.getInt(PlaybackService.KEY_TAPE_SIDE_B, -1).takeIf { it >= 0 }
 
     private val settingsPrefs = Settings.prefs(app)
     private val _settings = MutableStateFlow(SettingsState())
@@ -191,6 +196,10 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
                 bass = p.getInt(Settings.BASS, 0),
                 normalize = p.getBoolean(Settings.NORMALIZE, false),
                 fadeSeconds = p.getInt(Settings.FADE_SECONDS, 0),
+                tapeMode = p.getInt(Settings.TAPE_MODE, 0),
+                soundFx = p.getBoolean(Settings.SOUND_FX, true),
+                flipPause = p.getBoolean(Settings.FLIP_PAUSE, false),
+                dotArt = p.getBoolean(Settings.DOT_ART, true),
                 skipShort = p.getBoolean(Settings.SKIP_SHORT, true),
                 excluded = p.getStringSet(Settings.EXCLUDED, emptySet()).orEmpty(),
             )
@@ -200,6 +209,17 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     fun setEqOn(on: Boolean) = settingsPrefs.edit { putBoolean(Settings.EQ_ON, on) }
     fun setBass(strength: Int) = settingsPrefs.edit { putInt(Settings.BASS, strength.coerceIn(0, 1000)) }
     fun setNormalize(on: Boolean) = settingsPrefs.edit { putBoolean(Settings.NORMALIZE, on) }
+
+    /** Off → light → worn → off. */
+    fun cycleTapeMode() = settingsPrefs.edit { putInt(Settings.TAPE_MODE, (_settings.value.tapeMode + 1) % 3) }
+    fun setSoundFx(on: Boolean) = settingsPrefs.edit { putBoolean(Settings.SOUND_FX, on) }
+    fun setFlipPause(on: Boolean) = settingsPrefs.edit { putBoolean(Settings.FLIP_PAUSE, on) }
+
+    fun setDotArt(on: Boolean) {
+        settingsPrefs.edit { putBoolean(Settings.DOT_ART, on) }
+        _settings.update { it.copy(dotArt = on) }
+        controller?.let { publish(it) } // redraw the current cover in the new style
+    }
 
     /** Off → 2 → 4 → 6 seconds → off. */
     fun cycleFade() {
@@ -258,7 +278,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     fun play(list: List<Song>, index: Int) {
         val c = controller ?: return
         pendingDirection = 1
-        sideBStart = null
+        setSideB(null)
         c.setMediaItems(list.map { it.toMediaItem() }, index, 0L)
         c.prepare()
         c.play()
@@ -390,8 +410,14 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     /** Plays a mixtape: Side A then Side B, starting at [index]. The cassette label follows the side. */
     fun playTape(sideA: List<Song>, sideB: List<Song>, index: Int) {
         play(sideA + sideB, index)
-        sideBStart = sideA.size
+        setSideB(sideA.size)
         controller?.shuffleModeEnabled = false // a tape plays in order
+    }
+
+    // The service reads this too, so the widget's label shows the right side.
+    private fun setSideB(index: Int?) {
+        sideBStart = index
+        prefs.edit { putInt(PlaybackService.KEY_TAPE_SIDE_B, index ?: -1) }
     }
 
     fun loadStats() {
@@ -466,10 +492,16 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         val id = p.currentMediaItem?.mediaId
         // Embedded cover art arrives with the metadata; decode only when it changes.
         // ponytail: decoded on the main thread; move to a coroutine if covers are huge.
-        val key = "$id:${meta.artworkData?.size}"
+        val dots = _settings.value.dotArt
+        val key = "$id:${meta.artworkData?.size}:$dots"
         if (key != artKey) {
             artKey = key
-            art = meta.artworkData?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
+            art = meta.artworkData?.let { bytes ->
+                val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                    ?.let { if (dots) DotArt.render(it, cells = 22, sizePx = 264) else it }
+                    ?.asImageBitmap()
+            }
         }
         _ui.value = PlayerUiState(
             title = meta.title?.toString(),
