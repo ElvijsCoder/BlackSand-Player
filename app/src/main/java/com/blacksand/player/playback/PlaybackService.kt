@@ -25,7 +25,6 @@ import androidx.core.content.edit
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -81,12 +80,6 @@ class PlaybackService : MediaSessionService() {
     private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> applySound() }
 
     private val tapeProcessor = TapeProcessor()
-
-    // Cue (hold FF) and review (hold REW): hear the tape winding.
-    private var cueJob: Job? = null
-    private var cueing = false
-    private var cueWasPlaying = false
-    private var rewindPos = 0L
 
     // Flip to pause: face down pauses; face up again resumes.
     private val sensors by lazy { getSystemService(SensorManager::class.java) }
@@ -222,7 +215,7 @@ class PlaybackService : MediaSessionService() {
             var ticks = 0
             while (isActive) {
                 delay(5_000)
-                if (player.isPlaying && !cueing) {
+                if (player.isPlaying) {
                     prefs.edit { putLong(KEY_POSITION, player.currentPosition) }
                     addListen(5_000)
                     if (++ticks % 6 == 0) {
@@ -320,55 +313,6 @@ class PlaybackService : MediaSessionService() {
         loudness?.release(); loudness = null
     }
 
-    // --- Cue / review --------------------------------------------------------------------
-
-    /**
-     * Hold FF: the tape plays fast, pitch rising with it, like a deck's cue.
-     * Hold REW: steps back a grain at a time and plays each grain reversed at speed (review).
-     * [direction] 1 = forward, -1 = back, 0 = release.
-     */
-    private fun setCue(direction: Int) {
-        if (direction == 0) { stopCue(); return }
-        if (cueing) return
-        cueing = true
-        cueWasPlaying = player.isPlaying
-        player.volume = baseVolume * CUE_VOLUME
-        player.setPlaybackParameters(PlaybackParameters(CUE_SPEED, CUE_SPEED))
-        if (direction > 0) {
-            player.play()
-            return
-        }
-        tapeProcessor.reverseGrainMs = GRAIN_MS.toInt()
-        rewindPos = player.currentPosition
-        cueJob = scope.launch {
-            while (isActive && rewindPos > 0) {
-                val end = rewindPos
-                val start = (end - GRAIN_MS).coerceAtLeast(0)
-                player.seekTo(start)
-                player.play()
-                // Wait until this grain has actually been heard before stepping back again.
-                val deadline = SystemClock.elapsedRealtime() + 900
-                while (isActive && player.currentPosition < end - 60 && SystemClock.elapsedRealtime() < deadline) delay(15)
-                rewindPos = start
-            }
-            player.pause() // reached the start of the song
-        }
-    }
-
-    private fun stopCue() {
-        if (!cueing) return
-        val rewinding = cueJob != null
-        cueJob?.cancel()
-        cueJob = null
-        tapeProcessor.reverseGrainMs = 0
-        player.setPlaybackParameters(PlaybackParameters.DEFAULT)
-        if (rewinding) player.seekTo(rewindPos)
-        cueing = false
-        player.volume = baseVolume * fadeFactor
-        if (cueWasPlaying) player.play() else player.pause()
-        pushWidget()
-    }
-
     /** The flip sensor only runs while playing, or while waiting to resume after a flip. */
     private fun updateFlipSensor(forceOff: Boolean = false) {
         val want = !forceOff && settings.getBoolean(Settings.FLIP_PAUSE, false) && (player.isPlaying || flipPaused)
@@ -419,7 +363,7 @@ class PlaybackService : MediaSessionService() {
                 le.enabled = boost > 0
             }
         }
-        if (sleepJob?.isActive != true && !cueing) player.volume = baseVolume * fadeFactor
+        if (sleepJob?.isActive != true) player.volume = baseVolume * fadeFactor
     }
 
     /**
@@ -428,7 +372,6 @@ class PlaybackService : MediaSessionService() {
      * Returns true while a fade is possible, so the loop checks more often.
      */
     private fun applyFade(): Boolean {
-        if (cueing) return false
         val fadeMs = settings.getInt(Settings.FADE_SECONDS, 0) * 1000L
         if (fadeMs == 0L || sleepJob?.isActive == true || !player.isPlaying) {
             if (fadeFactor != 1f && sleepJob?.isActive != true) {
@@ -546,7 +489,6 @@ class PlaybackService : MediaSessionService() {
     private var widgetArt: Bitmap? = null
 
     private fun pushWidget(stopped: Boolean = false) {
-        if (cueing && !stopped) return // winding flickers play state; the widget catches up on release
         val meta = player.mediaMetadata
         val dots = settings.getBoolean(Settings.DOT_ART, true)
         val key = "${player.currentMediaItem?.mediaId}:${meta.artworkData?.size}:$dots"
@@ -594,10 +536,7 @@ class PlaybackService : MediaSessionService() {
         ): MediaSession.ConnectionResult {
             val default = super.onConnect(session, controller)
             return MediaSession.ConnectionResult.accept(
-                default.availableSessionCommands.buildUpon()
-                    .add(SessionCommand(CMD_SLEEP, Bundle.EMPTY))
-                    .add(SessionCommand(CMD_CUE, Bundle.EMPTY))
-                    .build(),
+                default.availableSessionCommands.buildUpon().add(SessionCommand(CMD_SLEEP, Bundle.EMPTY)).build(),
                 default.availablePlayerCommands,
             )
         }
@@ -608,10 +547,7 @@ class PlaybackService : MediaSessionService() {
             customCommand: SessionCommand,
             args: Bundle,
         ): ListenableFuture<SessionResult> {
-            when (customCommand.customAction) {
-                CMD_SLEEP -> setSleep(args.getInt(ARG_MINUTES))
-                CMD_CUE -> setCue(args.getInt(ARG_DIRECTION))
-            }
+            if (customCommand.customAction == CMD_SLEEP) setSleep(args.getInt(ARG_MINUTES))
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
 
@@ -648,11 +584,6 @@ class PlaybackService : MediaSessionService() {
         const val KEY_SLEEP_END = "sleepEnd"
         const val CMD_SLEEP = "blacksand.SLEEP"
         const val ARG_MINUTES = "minutes"
-        const val CMD_CUE = "blacksand.CUE"
-        const val ARG_DIRECTION = "direction"
-        private const val CUE_SPEED = 7f // tape speed (and pitch) while winding
-        private const val CUE_VOLUME = 0.45f
-        private const val GRAIN_MS = 1500L // how much of the song each backwards burst covers
         private const val FADE_MS = 10_000L
         private const val KEY_QUEUE = "queue"
         private const val KEY_INDEX = "index"

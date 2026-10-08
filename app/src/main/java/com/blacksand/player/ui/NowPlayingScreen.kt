@@ -215,8 +215,7 @@ private fun NowPlayingDeck(vm: PlayerViewModel, onClose: () -> Unit, onQueue: ()
             )
             TransportKey(
                 KeyIcon.PlayPause, if (ui.isPlaying) "Pause" else "Play", vm::togglePlay,
-                // Like a real deck, PLAY pops up while winding.
-                Modifier.weight(1f), latched = ui.isPlaying && ui.scanDirection == 0, caption = "PLAY", led = true,
+                Modifier.weight(1f), latched = ui.isPlaying, caption = "PLAY", led = true,
             )
             TransportKey(
                 KeyIcon.Next, "Next track, hold to fast-forward", vm::next, Modifier.weight(1f), caption = "FF",

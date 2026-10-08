@@ -152,6 +152,8 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private var ticker: Job? = null
+    private var scanJob: Job? = null
+    private var resumeAfterScan = false
     private var artKey: String? = null
     private var art: ImageBitmap? = null
 
@@ -457,27 +459,32 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(positionMs = c.currentPosition) }
     }
 
-    /**
-     * Hold FF/REW: you hear the tape winding: fast and high-pitched forward, backwards bursts in
-     * reverse. The playback service does the winding; here we only track it for the reels.
-     */
+    /** Hold FF/REW: silent fast winding, like a real deck. [direction] is 1 or -1. */
     fun startScan(direction: Int) {
-        if (_ui.value.scanDirection != 0) return
-        sendCue(direction)
+        val c = controller ?: return
+        if (scanJob?.isActive == true) return
+        resumeAfterScan = c.isPlaying
+        c.pause()
         _ui.update { it.copy(scanDirection = direction) }
-        startTicker() // keep the counter and tide line moving while winding
+        scanJob = viewModelScope.launch {
+            var pos = c.currentPosition
+            while (isActive) {
+                val end = (c.duration - 500).coerceAtLeast(0)
+                pos = (pos + direction * SCAN_STEP_MS).coerceIn(0, end)
+                c.seekTo(pos)
+                _ui.update { it.copy(positionMs = pos) }
+                if (pos == 0L || pos == end) break // reached the end of the tape
+                delay(100)
+            }
+        }
     }
 
     fun stopScan() {
-        sendCue(0)
+        scanJob?.cancel()
+        scanJob = null
         _ui.update { it.copy(scanDirection = 0) }
-    }
-
-    private fun sendCue(direction: Int) {
-        controller?.sendCustomCommand(
-            SessionCommand(PlaybackService.CMD_CUE, Bundle.EMPTY),
-            Bundle().apply { putInt(PlaybackService.ARG_DIRECTION, direction) },
-        )
+        if (resumeAfterScan) controller?.play()
+        resumeAfterScan = false
     }
 
     private fun publish(p: Player) {
@@ -530,6 +537,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         const val ACTION_SHUFFLE_ALL = "com.blacksand.player.SHUFFLE_ALL"
         const val ACTION_RESUME = "com.blacksand.player.RESUME"
+        private const val SCAN_STEP_MS = 2000L // every 100 ms → 20x speed
         private val SLEEP_OPTIONS = listOf(0, 15, 30, 60, -1)
     }
 

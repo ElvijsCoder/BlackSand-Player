@@ -46,7 +46,7 @@ object DeckSounds {
     /** Winding: forward runs the motor slightly faster than rewind. */
     fun startWind(forward: Boolean) {
         if (!enabled || windStream != 0) return
-        windStream = pool?.play(wind, 0.25f, 0.25f, 2, -1, if (forward) 1.15f else 1f) ?: 0 // quiet: the tape itself is audible now
+        windStream = pool?.play(wind, 0.6f, 0.6f, 2, -1, if (forward) 1.15f else 1f) ?: 0
     }
 
     fun stopWind() {
