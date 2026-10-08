@@ -78,7 +78,7 @@ private fun foldersOf(songs: List<Song>) = songs.groupBy { it.folder }.map { (fo
 }.sortedBy { it.subtitle.lowercase() }
 
 @Composable
-fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit) {
+fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit, onOpenSettings: () -> Unit) {
     val songs by vm.songs.collectAsState()
     val ui by vm.ui.collectAsState()
     val playlists by vm.playlists.collectAsState()
@@ -155,6 +155,10 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("LIBRARY", fontFamily = DotFont, fontSize = 32.sp, color = Sand.White)
                     Spacer(Modifier.weight(1f))
+                    if (!searching) {
+                        Pill("SETTINGS", onClick = onOpenSettings)
+                        Spacer(Modifier.width(8.dp))
+                    }
                     Pill(if (searching) "CLOSE" else "SEARCH") {
                         searching = !searching
                         if (!searching) query = ""

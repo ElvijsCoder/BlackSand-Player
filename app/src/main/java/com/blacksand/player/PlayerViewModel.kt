@@ -3,6 +3,7 @@ package com.blacksand.player
 import android.app.Application
 import android.content.ComponentName
 import android.content.Context
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -21,6 +22,7 @@ import androidx.media3.session.SessionToken
 import com.blacksand.player.data.MusicRepository
 import com.blacksand.player.data.Playlist
 import com.blacksand.player.data.PlaylistStore
+import com.blacksand.player.data.Settings
 import com.blacksand.player.data.parseM3u
 import com.blacksand.player.data.Song
 import com.blacksand.player.data.toMediaItem
@@ -28,7 +30,9 @@ import com.blacksand.player.playback.PlaybackService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -60,6 +64,20 @@ data class PlayerUiState(
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 }
 
+/** Everything the settings screen shows. Band info comes from the phone's equalizer via the service. */
+data class SettingsState(
+    val eqOn: Boolean = false,
+    val eqBands: List<Int> = emptyList(), // centre frequencies, Hz
+    val eqLevels: List<Int> = emptyList(), // millibels
+    val eqMin: Int = -1500,
+    val eqMax: Int = 1500,
+    val bass: Int = 0, // 0..1000
+    val normalize: Boolean = false,
+    val skipShort: Boolean = true,
+    val excluded: Set<String> = emptySet(),
+    val folders: List<Pair<String, Int>> = emptyList(), // every music folder with its song count
+)
+
 /** One entry in the queue view, in play order. [index] is its position in the player's list. */
 data class QueueEntry(val index: Int, val title: String, val artist: String)
 
@@ -77,6 +95,16 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     val queue = _queue.asStateFlow()
 
     private var sleepOption = 0
+
+    private val settingsPrefs = Settings.prefs(app)
+    private val _settings = MutableStateFlow(SettingsState())
+    val settings = _settings.asStateFlow()
+    private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> refreshSettings() }
+
+    /** Fires when something outside the UI (a home screen shortcut) wants the cassette screen open. */
+    private val _openPlayer = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val openPlayer = _openPlayer.asSharedFlow()
+    private var pendingShortcut: String? = null
 
     private val _songs = MutableStateFlow<List<Song>>(emptyList())
     val songs = _songs.asStateFlow()
@@ -117,13 +145,93 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
                 it.addListener(listener)
                 publish(it)
                 _queue.value = queueOf(it)
+                runPendingShortcut()
             }
         }, ContextCompat.getMainExecutor(app))
         viewModelScope.launch { _playlists.value = store.load() }
+        settingsPrefs.registerOnSharedPreferenceChangeListener(settingsListener)
+        refreshSettings()
     }
 
     fun loadLibrary() {
-        viewModelScope.launch { _songs.value = repository.loadSongs() }
+        viewModelScope.launch {
+            _songs.value = repository.loadSongs()
+            val all = repository.loadSongs(filtered = false)
+            _settings.update { s -> s.copy(folders = all.groupingBy { it.folder }.eachCount().toList().sortedBy { it.first.lowercase() }) }
+            runPendingShortcut()
+        }
+    }
+
+    // --- Settings ----------------------------------------------------------------------
+
+    private fun refreshSettings() {
+        val p = settingsPrefs
+        val bands = p.getString(Settings.EQ_BANDS, null)?.split(",")?.mapNotNull { it.toIntOrNull() }.orEmpty()
+        val saved = p.getString(Settings.EQ_LEVELS, null)?.split(",")?.mapNotNull { it.toIntOrNull() }.orEmpty()
+        _settings.update {
+            it.copy(
+                eqOn = p.getBoolean(Settings.EQ_ON, false),
+                eqBands = bands,
+                eqLevels = List(bands.size) { i -> saved.getOrElse(i) { 0 } },
+                eqMin = p.getInt(Settings.EQ_MIN, -1500),
+                eqMax = p.getInt(Settings.EQ_MAX, 1500),
+                bass = p.getInt(Settings.BASS, 0),
+                normalize = p.getBoolean(Settings.NORMALIZE, false),
+                skipShort = p.getBoolean(Settings.SKIP_SHORT, true),
+                excluded = p.getStringSet(Settings.EXCLUDED, emptySet()).orEmpty(),
+            )
+        }
+    }
+
+    fun setEqOn(on: Boolean) = settingsPrefs.edit { putBoolean(Settings.EQ_ON, on) }
+    fun setBass(strength: Int) = settingsPrefs.edit { putInt(Settings.BASS, strength.coerceIn(0, 1000)) }
+    fun setNormalize(on: Boolean) = settingsPrefs.edit { putBoolean(Settings.NORMALIZE, on) }
+
+    fun setEqLevel(band: Int, level: Int) {
+        val levels = _settings.value.eqLevels.toMutableList()
+        if (band !in levels.indices) return
+        levels[band] = level
+        settingsPrefs.edit { putString(Settings.EQ_LEVELS, levels.joinToString(",")) }
+    }
+
+    fun resetEq() = settingsPrefs.edit { putString(Settings.EQ_LEVELS, _settings.value.eqLevels.joinToString(",") { "0" }) }
+
+    fun setSkipShort(on: Boolean) {
+        settingsPrefs.edit { putBoolean(Settings.SKIP_SHORT, on) }
+        loadLibrary()
+    }
+
+    fun setFolderHidden(folder: String, hidden: Boolean) {
+        val set = _settings.value.excluded.toMutableSet()
+        if (hidden) set += folder else set -= folder
+        settingsPrefs.edit { putStringSet(Settings.EXCLUDED, set) }
+        loadLibrary()
+    }
+
+    // --- Home screen shortcuts ---------------------------------------------------------
+
+    /** Runs a launcher shortcut once both the player and the library are ready. */
+    fun handleShortcut(action: String?) {
+        if (action == ACTION_SHUFFLE_ALL || action == ACTION_RESUME) {
+            pendingShortcut = action
+            runPendingShortcut()
+        }
+    }
+
+    private fun runPendingShortcut() {
+        val action = pendingShortcut ?: return
+        val c = controller ?: return
+        when (action) {
+            ACTION_SHUFFLE_ALL -> {
+                val all = _songs.value
+                if (all.isEmpty()) return // library not loaded yet; try again when it is
+                c.shuffleModeEnabled = true
+                play(all, all.indices.random())
+            }
+            ACTION_RESUME -> if (!c.isPlaying) c.play()
+        }
+        pendingShortcut = null
+        _openPlayer.tryEmit(Unit)
     }
 
     /** Plays [list] as the queue, starting at [index]. */
@@ -350,12 +458,15 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private companion object {
-        const val SCAN_STEP_MS = 2000L // every 100 ms → 20x speed
-        val SLEEP_OPTIONS = listOf(0, 15, 30, 60, -1)
+    companion object {
+        const val ACTION_SHUFFLE_ALL = "com.blacksand.player.SHUFFLE_ALL"
+        const val ACTION_RESUME = "com.blacksand.player.RESUME"
+        private const val SCAN_STEP_MS = 2000L // every 100 ms → 20x speed
+        private val SLEEP_OPTIONS = listOf(0, 15, 30, 60, -1)
     }
 
     override fun onCleared() {
+        settingsPrefs.unregisterOnSharedPreferenceChangeListener(settingsListener)
         controller?.removeListener(listener)
         MediaController.releaseFuture(controllerFuture)
     }

@@ -39,7 +39,14 @@ fun Song.toMediaItem(): MediaItem = MediaItem.Builder()
 
 class MusicRepository(private val context: Context) {
 
-    suspend fun loadSongs(): List<Song> = withContext(Dispatchers.IO) {
+    /**
+     * All music on the phone. With [filtered], hidden folders and (if enabled) clips under 30 s
+     * are left out; the settings screen loads unfiltered to list every folder.
+     */
+    suspend fun loadSongs(filtered: Boolean = true): List<Song> = withContext(Dispatchers.IO) {
+        val settings = Settings.prefs(context)
+        val skipShort = filtered && settings.getBoolean(Settings.SKIP_SHORT, true)
+        val excluded = if (filtered) settings.getStringSet(Settings.EXCLUDED, emptySet()).orEmpty() else emptySet()
         val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
@@ -52,9 +59,8 @@ class MusicRepository(private val context: Context) {
             MediaStore.Audio.Media.RELATIVE_PATH,
             MediaStore.Audio.Media.DISPLAY_NAME,
         )
-        // ponytail: 30s floor hides voice notes/ringtones; proper folder exclusion comes later.
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} >= ?"
-        val args = arrayOf("30000")
+        val args = arrayOf(if (skipShort) "30000" else "0")
         val sort = "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
 
         val songs = mutableListOf<Song>()
@@ -85,6 +91,6 @@ class MusicRepository(private val context: Context) {
                 )
             }
         }
-        songs
+        if (excluded.isEmpty()) songs else songs.filterNot { it.folder in excluded }
     }
 }

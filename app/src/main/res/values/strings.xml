@@ -5,4 +5,6 @@
     <string name="widget_prev">Previous track</string>
     <string name="widget_play">Play or pause</string>
     <string name="widget_next">Next track</string>
+    <string name="shortcut_shuffle">Shuffle all</string>
+    <string name="shortcut_resume">Resume</string>
 </resources>

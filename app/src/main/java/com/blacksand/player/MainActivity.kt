@@ -1,6 +1,7 @@
 package com.blacksand.player
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -38,6 +39,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { BlackSandTheme { AppRoot(viewModel) } }
+        if (savedInstanceState == null) viewModel.handleShortcut(intent?.action)
+    }
+
+    // A home screen shortcut tapped while the app is already open.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        viewModel.handleShortcut(intent.action)
     }
 }
 
@@ -57,14 +65,23 @@ private fun AppRoot(vm: PlayerViewModel) {
     LaunchedEffect(granted) { if (granted) vm.loadLibrary() }
 
     var showPlayer by rememberSaveable { mutableStateOf(false) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(vm) { vm.openPlayer.collect { showSettings = false; showPlayer = true } }
 
     Box(Modifier.fillMaxSize().background(Sand.Black)) {
         if (granted) {
-            LibraryScreen(vm, onOpenPlayer = { showPlayer = true })
+            LibraryScreen(vm, onOpenPlayer = { showPlayer = true }, onOpenSettings = { showSettings = true })
         } else {
             PermissionScreen {
                 launcher.launch(arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.POST_NOTIFICATIONS))
             }
+        }
+        AnimatedVisibility(
+            visible = showSettings,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+        ) {
+            SettingsScreen(vm, onClose = { showSettings = false })
         }
         // The cassette slides up over the library, like loading a tape.
         AnimatedVisibility(

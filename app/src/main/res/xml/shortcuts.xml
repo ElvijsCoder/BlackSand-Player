@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon: shuffle everything, or carry on where you left off. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="shuffle_all"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_shuffle"
+        android:shortcutShortLabel="@string/shortcut_shuffle">
+        <intent
+            android:action="com.blacksand.player.SHUFFLE_ALL"
+            android:targetClass="com.blacksand.player.MainActivity"
+            android:targetPackage="com.blacksand.player" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="resume"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_resume"
+        android:shortcutShortLabel="@string/shortcut_resume">
+        <intent
+            android:action="com.blacksand.player.RESUME"
+            android:targetClass="com.blacksand.player.MainActivity"
+            android:targetPackage="com.blacksand.player" />
+    </shortcut>
+</shortcuts>

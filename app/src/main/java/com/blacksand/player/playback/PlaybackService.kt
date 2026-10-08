@@ -3,6 +3,7 @@ package com.blacksand.player.playback
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -10,6 +11,9 @@ import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
+import android.media.audiofx.BassBoost
+import android.media.audiofx.Equalizer
+import android.media.audiofx.LoudnessEnhancer
 import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
@@ -17,12 +21,14 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.blacksand.player.data.MusicRepository
+import com.blacksand.player.data.Settings
 import com.blacksand.player.data.toMediaItem
 import com.blacksand.player.widget.CassetteWidget
 import com.blacksand.player.widget.WidgetState
@@ -37,6 +43,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.pow
 
 /**
  * Owns the player. Media3 gives us the notification, lock screen controls,
@@ -48,6 +55,15 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
     private var sleepJob: Job? = null
+
+    // Sound effects attached to the player's audio session.
+    private val settings by lazy { Settings.prefs(this) }
+    private var equalizer: Equalizer? = null
+    private var bassBoost: BassBoost? = null
+    private var loudness: LoudnessEnhancer? = null
+    private var trackGainDb: Float? = null // ReplayGain of the current track, if tagged
+    private var baseVolume = 1f // player volume after normalization; the sleep fade scales this
+    private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> applySound() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val prefs by lazy { getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
 
@@ -93,6 +109,16 @@ class PlaybackService : MediaSessionService() {
             }
         })
         prefs.edit { putLong(KEY_SLEEP_END, 0) } // a fresh service has no timer running
+
+        player.addListener(object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) = setupEffects()
+            override fun onTracksChanged(tracks: Tracks) {
+                trackGainDb = replayGainOf(tracks)
+                applyGain()
+            }
+        })
+        setupEffects()
+        settings.registerOnSharedPreferenceChangeListener(settingsListener)
         restoreQueue(player)
 
         // Position changes constantly; save it every few seconds while playing.
@@ -120,6 +146,8 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         pushWidget(stopped = true)
+        settings.unregisterOnSharedPreferenceChangeListener(settingsListener)
+        releaseEffects()
         mediaSession?.run {
             saveQueue(player)
             player.release()
@@ -137,7 +165,7 @@ class PlaybackService : MediaSessionService() {
      */
     private fun setSleep(minutes: Int) {
         sleepJob?.cancel()
-        player.volume = 1f
+        player.volume = baseVolume
         player.pauseAtEndOfMediaItems = false
         when {
             minutes == 0 -> prefs.edit { putLong(KEY_SLEEP_END, 0) }
@@ -152,15 +180,92 @@ class PlaybackService : MediaSessionService() {
                     delay(end - System.currentTimeMillis() - FADE_MS)
                     val steps = 20
                     for (i in steps downTo 0) {
-                        player.volume = i / steps.toFloat()
+                        player.volume = baseVolume * i / steps.toFloat()
                         delay(FADE_MS / steps)
                     }
                     player.pause()
-                    player.volume = 1f
+                    player.volume = baseVolume
                     prefs.edit { putLong(KEY_SLEEP_END, 0) }
                 }
             }
         }
+    }
+
+    // --- Sound: equalizer, bass boost, ReplayGain -------------------------------------
+
+    private fun setupEffects() {
+        releaseEffects()
+        val session = player.audioSessionId
+        if (session == C.AUDIO_SESSION_ID_UNSET) return
+        equalizer = runCatching { Equalizer(0, session) }.getOrNull()
+        bassBoost = runCatching { BassBoost(0, session) }.getOrNull()
+        loudness = runCatching { LoudnessEnhancer(session) }.getOrNull()
+        // Tell the settings screen what this phone's equalizer offers.
+        equalizer?.let { eq ->
+            val bands = (0 until eq.numberOfBands).map { eq.getCenterFreq(it.toShort()) / 1000 }
+            settings.edit {
+                putString(Settings.EQ_BANDS, bands.joinToString(","))
+                putInt(Settings.EQ_MIN, eq.bandLevelRange[0].toInt())
+                putInt(Settings.EQ_MAX, eq.bandLevelRange[1].toInt())
+            }
+        }
+        applySound()
+    }
+
+    private fun releaseEffects() {
+        equalizer?.release(); equalizer = null
+        bassBoost?.release(); bassBoost = null
+        loudness?.release(); loudness = null
+    }
+
+    private fun applySound() {
+        equalizer?.let { eq ->
+            runCatching {
+                val levels = settings.getString(Settings.EQ_LEVELS, null)?.split(",")?.mapNotNull { it.toIntOrNull() }
+                levels?.forEachIndexed { i, level -> if (i < eq.numberOfBands) eq.setBandLevel(i.toShort(), level.toShort()) }
+                eq.enabled = settings.getBoolean(Settings.EQ_ON, false)
+            }
+        }
+        bassBoost?.let { bb ->
+            runCatching {
+                val strength = settings.getInt(Settings.BASS, 0)
+                if (bb.strengthSupported) bb.setStrength(strength.toShort())
+                bb.enabled = strength > 0
+            }
+        }
+        applyGain()
+    }
+
+    /**
+     * Volume normalization from ReplayGain tags: quieter via player volume, louder (up to +6 dB)
+     * via the loudness enhancer. Untagged tracks play as they are.
+     */
+    private fun applyGain() {
+        val gain = trackGainDb?.takeIf { settings.getBoolean(Settings.NORMALIZE, false) }
+        baseVolume = if (gain != null && gain < 0) 10f.pow(gain / 20f) else 1f
+        loudness?.let { le ->
+            runCatching {
+                val boost = if (gain != null && gain > 0) (minOf(gain, 6f) * 100).toInt() else 0
+                le.setTargetGain(boost)
+                le.enabled = boost > 0
+            }
+        }
+        if (sleepJob?.isActive != true) player.volume = baseVolume
+    }
+
+    // ReplayGain lives in ID3 TXXX frames or Vorbis comments; both print as "...REPLAYGAIN_TRACK_GAIN...-6.5 dB".
+    private fun replayGainOf(tracks: Tracks): Float? {
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_AUDIO || !group.isSelected) continue
+            for (i in 0 until group.length) {
+                val metadata = group.getTrackFormat(i).metadata ?: continue
+                for (e in 0 until metadata.length()) {
+                    val match = REPLAY_GAIN.find(metadata.get(e).toString()) ?: continue
+                    return match.groupValues[1].toFloatOrNull()
+                }
+            }
+        }
+        return null
     }
 
     private fun saveQueue(player: Player) {
@@ -292,6 +397,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     companion object {
+        private val REPLAY_GAIN = Regex("REPLAYGAIN_TRACK_GAIN\\D*?([-+]?\\d+(?:\\.\\d+)?)", RegexOption.IGNORE_CASE)
         const val PREFS = "playback"
         const val KEY_SLEEP_END = "sleepEnd"
         const val CMD_SLEEP = "blacksand.SLEEP"
