@@ -77,10 +77,11 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
     var showQueue by rememberSaveable { mutableStateOf(false) }
     Box(Modifier.fillMaxSize()) {
         NowPlayingDeck(vm, onClose, onQueue = { showQueue = true })
+        val reduce = LocalReduceMotion.current
         AnimatedVisibility(
             visible = showQueue,
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut(),
+            enter = if (reduce) fadeIn() else slideInVertically { it } + fadeIn(),
+            exit = if (reduce) fadeOut() else slideOutVertically { it } + fadeOut(),
         ) {
             QueueSheet(vm, onClose = { showQueue = false })
         }
@@ -125,12 +126,17 @@ private fun NowPlayingDeck(vm: PlayerViewModel, onClose: () -> Unit, onQueue: ()
             )
         }
 
+        Nameplate()
+
         // A new song swaps in a new cassette: forward slides left, back slides right.
+        val reduce = LocalReduceMotion.current
         AnimatedContent(
             targetState = ui,
             contentKey = { it.currentMediaId },
             transitionSpec = {
-                if (targetState.side != initialState.side) {
+                if (reduce) {
+                    fadeIn(tween(150)).togetherWith(fadeOut(tween(150)))
+                } else if (targetState.side != initialState.side) {
                     // Turning the tape over: the cassette narrows to its edge, then opens on the other side.
                     expandHorizontally(tween(220, delayMillis = 220), Alignment.CenterHorizontally)
                         .togetherWith(shrinkHorizontally(tween(220), Alignment.CenterHorizontally))
@@ -194,7 +200,7 @@ private fun NowPlayingDeck(vm: PlayerViewModel, onClose: () -> Unit, onQueue: ()
                 letterSpacing = 2.sp,
             )
             Spacer(Modifier.weight(1f))
-            Text(formatTime(ui.positionMs), fontFamily = DotFont, fontSize = 40.sp, color = Sand.White)
+            RollingCounter(formatTime(ui.positionMs), fontSize = 40.sp, color = Sand.White)
             Text(" / ${formatTime(ui.durationMs)}", color = Sand.Dim, fontSize = 13.sp)
         }
 
@@ -496,7 +502,7 @@ private fun TapeWindow(isPlaying: Boolean, scan: Int, progress: Float, modifier:
     val l by rememberUpdatedState(leftFrac)
     val r by rememberUpdatedState(rightFrac)
 
-    val moving = kotlin.math.abs(speed) > 0.001f
+    val moving = kotlin.math.abs(speed) > 0.001f && !LocalReduceMotion.current
     LaunchedEffect(moving) {
         if (!moving) return@LaunchedEffect
         var last = 0L
@@ -545,7 +551,7 @@ private fun TapeWindow(isPlaying: Boolean, scan: Int, progress: Float, modifier:
 }
 
 /** Reel hub: white ring, drive teeth pointing into the hole, three spoke holes. */
-private fun DrawScope.hub(c: Offset, angle: Float, h: Float) {
+internal fun DrawScope.hub(c: Offset, angle: Float, h: Float) {
     drawCircle(Sand.White, 0.173f * h, c)
     drawCircle(Hole, 0.092f * h, c)
     repeat(6) { i ->
@@ -563,9 +569,12 @@ private fun DrawScope.hub(c: Offset, angle: Float, h: Float) {
 private fun TideSeekBar(progress: Float, onSeek: (Float) -> Unit) {
     var dragFrac by remember { mutableStateOf<Float?>(null) }
     val shown = dragFrac ?: progress
-    val wobble by rememberInfiniteTransition(label = "foam").animateFloat(
-        0f, 1f, infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Reverse), label = "wobble",
-    )
+    val wobble = if (LocalReduceMotion.current) 0.5f else {
+        val w by rememberInfiniteTransition(label = "foam").animateFloat(
+            0f, 1f, infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Reverse), label = "wobble",
+        )
+        w
+    }
 
     Canvas(
         Modifier

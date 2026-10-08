@@ -19,6 +19,7 @@ import com.blacksand.player.MainActivity
 import com.blacksand.player.R
 import com.blacksand.player.playback.PlaybackService
 import com.blacksand.player.ui.formatTime
+import com.blacksand.player.ui.reduceMotion
 
 /** What the widget shows. Built by the playback service; [art] is already greyscale or dot-matrix. */
 data class WidgetState(
@@ -96,9 +97,11 @@ class CassetteWidget : AppWidgetProvider() {
             else v.setImageViewResource(R.id.art, android.R.color.transparent)
             v.setImageViewResource(R.id.led, if (s.playing) R.drawable.led_on else R.drawable.led_off)
 
-            // Reels: spinners turn on their own while playing; still hubs when paused.
-            val spin = if (s.playing) View.VISIBLE else View.GONE
-            val still = if (s.playing) View.GONE else View.VISIBLE
+            // Reels: spinners turn on their own while playing; still hubs when paused
+            // (and always still when Android's "Remove animations" is on).
+            val turning = s.playing && !reduceMotion(context)
+            val spin = if (turning) View.VISIBLE else View.GONE
+            val still = if (turning) View.GONE else View.VISIBLE
             v.setViewVisibility(R.id.spin_left, spin)
             v.setViewVisibility(R.id.spin_right, spin)
             v.setViewVisibility(R.id.hub_left, still)

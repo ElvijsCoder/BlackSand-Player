@@ -11,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -30,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
 import com.blacksand.player.ui.*
 
 class MainActivity : ComponentActivity() {
@@ -39,7 +41,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         DeckSounds.init(this)
-        setContent { BlackSandTheme { AppRoot(viewModel) } }
+        val reduce = reduceMotion(this)
+        setContent {
+            CompositionLocalProvider(LocalReduceMotion provides reduce) {
+                BlackSandTheme { AppRoot(viewModel) }
+            }
+        }
         if (savedInstanceState == null) viewModel.handleShortcut(intent?.action)
     }
 
@@ -67,6 +74,12 @@ private fun AppRoot(vm: PlayerViewModel) {
 
     var showPlayer by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    val reduce = LocalReduceMotion.current
+    // A short "tape loading" moment on launch (skipped when animations are off).
+    var loading by rememberSaveable { mutableStateOf(!reduce) }
+    LaunchedEffect(Unit) { if (loading) { delay(1100); loading = false } }
+    val enter = if (reduce) fadeIn() else slideInVertically { it } + fadeIn()
+    val exit = if (reduce) fadeOut() else slideOutVertically { it } + fadeOut()
     LaunchedEffect(vm) { vm.openPlayer.collect { showSettings = false; showPlayer = true } }
 
     Box(Modifier.fillMaxSize().background(Sand.Black)) {
@@ -77,20 +90,15 @@ private fun AppRoot(vm: PlayerViewModel) {
                 launcher.launch(arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.POST_NOTIFICATIONS))
             }
         }
-        AnimatedVisibility(
-            visible = showSettings,
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut(),
-        ) {
+        AnimatedVisibility(visible = showSettings, enter = enter, exit = exit) {
             SettingsScreen(vm, onClose = { showSettings = false })
         }
         // The cassette slides up over the library, like loading a tape.
-        AnimatedVisibility(
-            visible = showPlayer,
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut(),
-        ) {
+        AnimatedVisibility(visible = showPlayer, enter = enter, exit = exit) {
             NowPlayingScreen(vm, onClose = { showPlayer = false })
+        }
+        AnimatedVisibility(visible = loading, enter = fadeIn(), exit = fadeOut(tween(350))) {
+            TapeLoading()
         }
     }
 }
