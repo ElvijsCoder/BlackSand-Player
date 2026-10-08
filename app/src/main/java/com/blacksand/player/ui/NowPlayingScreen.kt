@@ -6,6 +6,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -128,10 +130,17 @@ private fun NowPlayingDeck(vm: PlayerViewModel, onClose: () -> Unit, onQueue: ()
             targetState = ui,
             contentKey = { it.currentMediaId },
             transitionSpec = {
-                val dir = targetState.swapDirection
-                (slideInHorizontally(tween(350)) { it * dir } + fadeIn(tween(350)))
-                    .togetherWith(slideOutHorizontally(tween(350)) { -it * dir } + fadeOut(tween(250)))
-                    .using(SizeTransform(clip = false))
+                if (targetState.side != initialState.side) {
+                    // Turning the tape over: the cassette narrows to its edge, then opens on the other side.
+                    expandHorizontally(tween(220, delayMillis = 220), Alignment.CenterHorizontally)
+                        .togetherWith(shrinkHorizontally(tween(220), Alignment.CenterHorizontally))
+                        .using(SizeTransform(clip = false))
+                } else {
+                    val dir = targetState.swapDirection
+                    (slideInHorizontally(tween(350)) { it * dir } + fadeIn(tween(350)))
+                        .togetherWith(slideOutHorizontally(tween(350)) { -it * dir } + fadeOut(tween(250)))
+                        .using(SizeTransform(clip = false))
+                }
             },
             label = "cassetteSwap",
         ) { state ->
@@ -342,7 +351,7 @@ private fun Cassette(ui: PlayerUiState, modifier: Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(u * 10),
             ) {
                 Text(
-                    "A", fontFamily = TitleFont, fontWeight = FontWeight.Bold,
+                    ui.side, fontFamily = TitleFont, fontWeight = FontWeight.Bold,
                     fontSize = (30 * k).sp, lineHeight = (30 * k).sp, color = Sand.Ink,
                 )
                 Column(Modifier.weight(1f)) {

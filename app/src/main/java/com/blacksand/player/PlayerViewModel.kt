@@ -19,12 +19,15 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
+import com.blacksand.player.data.ListeningStats
 import com.blacksand.player.data.MusicRepository
 import com.blacksand.player.data.Playlist
 import com.blacksand.player.data.PlaylistStore
 import com.blacksand.player.data.Settings
 import com.blacksand.player.data.parseM3u
 import com.blacksand.player.data.Song
+import com.blacksand.player.data.StatsStore
+import com.blacksand.player.data.sidesOf
 import com.blacksand.player.data.toMediaItem
 import com.blacksand.player.playback.PlaybackService
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +62,8 @@ data class PlayerUiState(
     val swapDirection: Int = 1,
     /** Sleep timer: 0 = off, -1 = end of song, otherwise the wall-clock time it stops. */
     val sleepEnd: Long = 0L,
+    /** Which side of the tape is playing: "B" once a mixtape reaches its second side. */
+    val side: String = "A",
 ) {
     val progress: Float
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
@@ -73,6 +78,7 @@ data class SettingsState(
     val eqMax: Int = 1500,
     val bass: Int = 0, // 0..1000
     val normalize: Boolean = false,
+    val fadeSeconds: Int = 0,
     val skipShort: Boolean = true,
     val excluded: Set<String> = emptySet(),
     val folders: List<Pair<String, Int>> = emptyList(), // every music folder with its song count
@@ -95,6 +101,13 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     val queue = _queue.asStateFlow()
 
     private var sleepOption = 0
+
+    private val statsStore = StatsStore(app)
+    private val _stats = MutableStateFlow<ListeningStats?>(null)
+    val stats = _stats.asStateFlow()
+
+    /** When a mixtape is playing: the queue index where Side B starts. */
+    private var sideBStart: Int? = null
 
     private val settingsPrefs = Settings.prefs(app)
     private val _settings = MutableStateFlow(SettingsState())
@@ -177,6 +190,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
                 eqMax = p.getInt(Settings.EQ_MAX, 1500),
                 bass = p.getInt(Settings.BASS, 0),
                 normalize = p.getBoolean(Settings.NORMALIZE, false),
+                fadeSeconds = p.getInt(Settings.FADE_SECONDS, 0),
                 skipShort = p.getBoolean(Settings.SKIP_SHORT, true),
                 excluded = p.getStringSet(Settings.EXCLUDED, emptySet()).orEmpty(),
             )
@@ -186,6 +200,12 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     fun setEqOn(on: Boolean) = settingsPrefs.edit { putBoolean(Settings.EQ_ON, on) }
     fun setBass(strength: Int) = settingsPrefs.edit { putInt(Settings.BASS, strength.coerceIn(0, 1000)) }
     fun setNormalize(on: Boolean) = settingsPrefs.edit { putBoolean(Settings.NORMALIZE, on) }
+
+    /** Off → 2 → 4 → 6 seconds → off. */
+    fun cycleFade() {
+        val next = when (_settings.value.fadeSeconds) { 0 -> 2; 2 -> 4; 4 -> 6; else -> 0 }
+        settingsPrefs.edit { putInt(Settings.FADE_SECONDS, next) }
+    }
 
     fun setEqLevel(band: Int, level: Int) {
         val levels = _settings.value.eqLevels.toMutableList()
@@ -238,6 +258,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     fun play(list: List<Song>, index: Int) {
         val c = controller ?: return
         pendingDirection = 1
+        sideBStart = null
         c.setMediaItems(list.map { it.toMediaItem() }, index, 0L)
         c.prepare()
         c.play()
@@ -298,10 +319,21 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         editPlaylists { list -> list.filterNot { it.id == id } }
     }
 
-    fun addToPlaylist(id: Long, song: Song) {
-        editPlaylists { list ->
-            list.map { if (it.id == id && song.id !in it.songIds) it.copy(songIds = it.songIds + song.id) else it }
+    fun createMixtape(name: String, tapeMinutes: Int) {
+        editPlaylists { it + Playlist(System.currentTimeMillis(), name.trim(), emptyList(), tapeMinutes) }
+    }
+
+    /** Adds [song]; returns false if it's a mixtape and the song doesn't fit on the tape. */
+    fun addToPlaylist(id: Long, song: Song): Boolean {
+        val playlist = _playlists.value.firstOrNull { it.id == id } ?: return false
+        if (song.id in playlist.songIds) return true
+        playlist.tapeMinutes?.let { minutes ->
+            val byId = _songs.value.associateBy { it.id }
+            val songs = playlist.songIds.mapNotNull { byId[it] } + song
+            if (sidesOf(songs, minutes) == null) return false
         }
+        editPlaylists { list -> list.map { if (it.id == id) it.copy(songIds = it.songIds + song.id) else it } }
+        return true
     }
 
     fun removeFromPlaylist(id: Long, song: Song) {
@@ -353,6 +385,17 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         val end = prefs.getLong(PlaybackService.KEY_SLEEP_END, 0L)
         if (end == 0L) sleepOption = 0
         return if (end > 0 && end < System.currentTimeMillis()) 0L else end
+    }
+
+    /** Plays a mixtape: Side A then Side B, starting at [index]. The cassette label follows the side. */
+    fun playTape(sideA: List<Song>, sideB: List<Song>, index: Int) {
+        play(sideA + sideB, index)
+        sideBStart = sideA.size
+        controller?.shuffleModeEnabled = false // a tape plays in order
+    }
+
+    fun loadStats() {
+        viewModelScope.launch { _stats.value = statsStore.load() }
     }
 
     fun toggleShuffle() {
@@ -443,6 +486,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             repeatMode = p.repeatMode,
             swapDirection = swapDirection,
             sleepEnd = currentSleepEnd(),
+            side = sideBStart?.let { if (p.currentMediaItemIndex >= it) "B" else "A" } ?: "A",
         )
         if (p.isPlaying) startTicker() else ticker?.cancel()
     }

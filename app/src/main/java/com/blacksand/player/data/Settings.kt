@@ -16,6 +16,7 @@ object Settings {
     const val EQ_MAX = "eq_max"
     const val BASS = "bass" // 0..1000
     const val NORMALIZE = "normalize" // use ReplayGain tags
+    const val FADE_SECONDS = "fade_seconds" // fade between songs: 0 = off
     const val SKIP_SHORT = "skip_short" // hide clips under 30 s
     const val EXCLUDED = "excluded_folders"
 

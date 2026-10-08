@@ -46,18 +46,20 @@ import androidx.compose.ui.unit.sp
 import com.blacksand.player.PlayerUiState
 import com.blacksand.player.PlayerViewModel
 import com.blacksand.player.data.Song
+import com.blacksand.player.data.sidesOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private enum class Tab(val title: String) {
-    Songs("SONGS"), Albums("ALBUMS"), Artists("ARTISTS"), Folders("FOLDERS"), Playlists("PLAYLISTS")
+    Songs("SONGS"), Albums("ALBUMS"), Artists("ARTISTS"), Folders("FOLDERS"), Playlists("PLAYLISTS"), Stats("STATS")
 }
 
 /** An album, artist or folder: a titled list of songs. */
 /** [playlistId] is set for playlists, which can be edited. */
 private data class Group(
-    val key: String, val title: String, val subtitle: String, val songs: List<Song>, val playlistId: Long? = null,
+    val key: String, val title: String, val subtitle: String, val songs: List<Song>,
+    val playlistId: Long? = null, val tapeMinutes: Int? = null,
 )
 
 private fun albumsOf(songs: List<Song>) = songs.groupBy { it.albumId }.map { (id, list) ->
@@ -97,7 +99,10 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit, onOpenSettings:
         val byId = songs.associateBy { it.id }
         playlists.map { p ->
             val list = p.songIds.mapNotNull { byId[it] } // songs deleted from the phone just drop out
-            Group("p:${p.id}", p.name, "${list.size} TRACKS", list, p.id)
+            val subtitle = if (p.tapeMinutes != null) {
+                "C${p.tapeMinutes} MIXTAPE · ${list.size} TRACKS · ${list.sumOf { it.durationMs } / 60_000} MIN"
+            } else "${list.size} TRACKS"
+            Group("p:${p.id}", p.name, subtitle, list, p.id, p.tapeMinutes)
         }
     }
     val open = remember(openKey, albums, artists, folders, playlistGroups) {
@@ -107,6 +112,7 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit, onOpenSettings:
     // Dialogs
     var menuFor by remember { mutableStateOf<Song?>(null) }
     var creating by remember { mutableStateOf(false) }
+    var creatingTape by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -121,6 +127,10 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit, onOpenSettings:
         val q = query.trim()
         if (q.isEmpty()) emptyList()
         else songs.filter { s -> listOf(s.title, s.artist, s.album).any { it.contains(q, ignoreCase = true) } }
+    }
+
+    val tape = remember(open) {
+        open?.let { g -> g.tapeMinutes?.let { m -> sidesOf(g.songs, m) ?: (g.songs to emptyList()) } }
     }
 
     BackHandler(enabled = open != null || searching) {
@@ -144,8 +154,17 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit, onOpenSettings:
                     color = Sand.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(open.subtitle, Modifier.padding(top = 4.dp), color = Sand.Dim, fontSize = 12.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(Modifier.padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Pill("PLAY", enabled = open.songs.isNotEmpty()) { play(open.songs, 0) }
+                Row(
+                    Modifier.padding(vertical = 10.dp).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (tape != null) {
+                        val (a, b) = tape
+                        Pill("PLAY", enabled = open.songs.isNotEmpty()) { vm.playTape(a, b, 0); onOpenPlayer() }
+                        Pill("PLAY SIDE B", enabled = b.isNotEmpty()) { vm.playTape(a, b, a.size); onOpenPlayer() }
+                    } else {
+                        Pill("PLAY", enabled = open.songs.isNotEmpty()) { play(open.songs, 0) }
+                    }
                     if (open.playlistId != null) {
                         Pill("RENAME") { renaming = true }
                         Pill("DELETE") { deleting = true }
@@ -183,6 +202,10 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit, onOpenSettings:
         Box(Modifier.weight(1f)) {
             val onMore: (Song) -> Unit = { menuFor = it }
             when {
+                open != null && tape != null -> MixtapeList(tape.first, tape.second, open.tapeMinutes ?: 60, ui, onMore) {
+                    vm.playTape(tape.first, tape.second, it)
+                    onOpenPlayer()
+                }
                 open != null -> if (open.songs.isEmpty()) {
                     Hint("Empty for now. Use ⋯ on any song to add it here.")
                 } else {
@@ -196,13 +219,18 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit, onOpenSettings:
                     SongList(results, ui, onMore) { play(results, it) }
                 }
                 tab == Tab.Playlists -> Column {
-                    Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        Modifier.padding(horizontal = 20.dp, vertical = 4.dp).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         Pill("+ NEW") { creating = true }
+                        Pill("+ MIXTAPE") { creatingTape = true }
                         Pill("IMPORT M3U") { importer.launch(arrayOf("*/*")) }
                     }
                     if (playlistGroups.isEmpty()) Hint("No playlists yet. Tap + NEW, or ⋯ on any song.")
                     else GroupList(playlistGroups) { openKey = it.key }
                 }
+                tab == Tab.Stats -> StatsView(vm, songs) { list, i -> play(list, i) }
                 songs.isEmpty() -> Hint("No music found on this phone yet.")
                 tab == Tab.Songs -> SongList(songs, ui, onMore) { play(songs, it) }
                 else -> GroupList(
@@ -217,6 +245,12 @@ fun LibraryScreen(vm: PlayerViewModel, onOpenPlayer: () -> Unit, onOpenSettings:
 
     menuFor?.let { song ->
         SongMenu(song, playlists, open?.playlistId, vm, onDismiss = { menuFor = null })
+    }
+    if (creatingTape) {
+        MixtapeDialog(onDismiss = { creatingTape = false }) { name, minutes ->
+            vm.createMixtape(name, minutes)
+            creatingTape = false
+        }
     }
     if (creating) {
         NameDialog("New playlist", "", onDismiss = { creating = false }) { name ->
@@ -287,6 +321,42 @@ private fun SongList(songs: List<Song>, ui: PlayerUiState, onMore: (Song) -> Uni
     LazyColumn(Modifier.fillMaxSize()) {
         itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
             SongRow(song, isCurrent = song.id.toString() == ui.currentMediaId, onMore = { onMore(song) }) { onPlay(index) }
+        }
+    }
+}
+
+/** A mixtape page: Side A and Side B, each with how much of the side is used. */
+@Composable
+private fun MixtapeList(
+    a: List<Song>, b: List<Song>, minutes: Int, ui: PlayerUiState,
+    onMore: (Song) -> Unit, onPlay: (Int) -> Unit,
+) {
+    val sideMs = minutes * 60_000L / 2
+    LazyColumn(Modifier.fillMaxSize()) {
+        item { SideHeader("SIDE A", a.sumOf { it.durationMs }, sideMs) }
+        if (a.isEmpty()) item { Hint("Use ⋯ on any song to record it onto this tape.") }
+        itemsIndexed(a, key = { _, s -> "a${s.id}" }) { i, song ->
+            SongRow(song, song.id.toString() == ui.currentMediaId, onMore = { onMore(song) }) { onPlay(i) }
+        }
+        item { SideHeader("SIDE B", b.sumOf { it.durationMs }, sideMs) }
+        if (b.isEmpty()) item { Hint("Side B fills once Side A is full.") }
+        itemsIndexed(b, key = { _, s -> "b${s.id}" }) { i, song ->
+            SongRow(song, song.id.toString() == ui.currentMediaId, onMore = { onMore(song) }) { onPlay(a.size + i) }
+        }
+    }
+}
+
+@Composable
+private fun SideHeader(title: String, usedMs: Long, sideMs: Long) {
+    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, fontFamily = DotFont, fontSize = 20.sp, color = Sand.White)
+            Spacer(Modifier.weight(1f))
+            Text("${formatTime(usedMs)} / ${formatTime(sideMs)}", fontSize = 12.sp, color = Sand.Dim)
+        }
+        Spacer(Modifier.height(6.dp))
+        Box(Modifier.fillMaxWidth().height(3.dp).background(Sand.Line)) {
+            Box(Modifier.fillMaxWidth((usedMs.toFloat() / sideMs).coerceIn(0f, 1f)).fillMaxHeight().background(Sand.White))
         }
     }
 }

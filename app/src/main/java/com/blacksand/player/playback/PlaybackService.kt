@@ -15,6 +15,7 @@ import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.media3.common.AudioAttributes
@@ -28,7 +29,10 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.blacksand.player.data.MusicRepository
+import com.blacksand.player.data.ListeningStats
 import com.blacksand.player.data.Settings
+import com.blacksand.player.data.SongStat
+import com.blacksand.player.data.StatsStore
 import com.blacksand.player.data.toMediaItem
 import com.blacksand.player.widget.CassetteWidget
 import com.blacksand.player.widget.WidgetState
@@ -43,6 +47,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import kotlin.math.pow
 
 /**
@@ -64,6 +69,17 @@ class PlaybackService : MediaSessionService() {
     private var trackGainDb: Float? = null // ReplayGain of the current track, if tagged
     private var baseVolume = 1f // player volume after normalization; the sleep fade scales this
     private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> applySound() }
+
+    // Listening stats: a play counts once 30 s (or half a short song) has been heard.
+    private val statsStore by lazy { StatsStore(this) }
+    private var stats: ListeningStats? = null
+    private var listenedThisItem = 0L
+    private var countedThisItem = false
+
+    // Fade between songs.
+    private var fadeFactor = 1f
+    private var fadeInStart: Long? = null
+    private var lastAlbum: CharSequence? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val prefs by lazy { getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
 
@@ -111,6 +127,18 @@ class PlaybackService : MediaSessionService() {
         prefs.edit { putLong(KEY_SLEEP_END, 0) } // a fresh service has no timer running
 
         player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                listenedThisItem = 0
+                countedThisItem = false
+                // Fade the new song in after an automatic change, unless it continues the same album.
+                val album = mediaItem?.mediaMetadata?.albumTitle
+                val sameAlbum = album != null && album == lastAlbum
+                fadeInStart = if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && !sameAlbum) SystemClock.elapsedRealtime() else null
+                lastAlbum = album
+            }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (!isPlaying) saveStats()
+            }
             override fun onAudioSessionIdChanged(audioSessionId: Int) = setupEffects()
             override fun onTracksChanged(tracks: Tracks) {
                 trackGainDb = replayGainOf(tracks)
@@ -119,6 +147,15 @@ class PlaybackService : MediaSessionService() {
         })
         setupEffects()
         settings.registerOnSharedPreferenceChangeListener(settingsListener)
+        scope.launch { stats = statsStore.load() }
+
+        // Fade loop: cheap check, faster only while a fade could be happening.
+        scope.launch {
+            while (isActive) {
+                val active = applyFade()
+                delay(if (active) 100 else 500)
+            }
+        }
         restoreQueue(player)
 
         // Position changes constantly; save it every few seconds while playing.
@@ -129,7 +166,11 @@ class PlaybackService : MediaSessionService() {
                 delay(5_000)
                 if (player.isPlaying) {
                     prefs.edit { putLong(KEY_POSITION, player.currentPosition) }
-                    if (++ticks % 6 == 0) pushWidget()
+                    addListen(5_000)
+                    if (++ticks % 6 == 0) {
+                        pushWidget()
+                        saveStats()
+                    }
                 }
             }
         }
@@ -148,6 +189,7 @@ class PlaybackService : MediaSessionService() {
         pushWidget(stopped = true)
         settings.unregisterOnSharedPreferenceChangeListener(settingsListener)
         releaseEffects()
+        stats?.let { statsStore.write(statsStore.toJson(it)) } // small file; written directly while shutting down
         mediaSession?.run {
             saveQueue(player)
             player.release()
@@ -250,7 +292,69 @@ class PlaybackService : MediaSessionService() {
                 le.enabled = boost > 0
             }
         }
-        if (sleepJob?.isActive != true) player.volume = baseVolume
+        if (sleepJob?.isActive != true) player.volume = baseVolume * fadeFactor
+    }
+
+    /**
+     * Fade between songs: the last few seconds fade out and the next song fades in, like the tape
+     * running into the next track. Skipped within an album so albums stay gapless.
+     * Returns true while a fade is possible, so the loop checks more often.
+     */
+    private fun applyFade(): Boolean {
+        val fadeMs = settings.getInt(Settings.FADE_SECONDS, 0) * 1000L
+        if (fadeMs == 0L || sleepJob?.isActive == true || !player.isPlaying) {
+            if (fadeFactor != 1f && sleepJob?.isActive != true) {
+                fadeFactor = 1f
+                player.volume = baseVolume
+            }
+            return false
+        }
+        var f = 1f
+        val duration = player.duration
+        if (duration > 0 && player.hasNextMediaItem() && !nextIsSameAlbum()) {
+            val left = duration - player.currentPosition
+            if (left < fadeMs) f = (left.toFloat() / fadeMs).coerceIn(0f, 1f)
+        }
+        fadeInStart?.let { start ->
+            val elapsed = SystemClock.elapsedRealtime() - start
+            if (elapsed < fadeMs) f = minOf(f, elapsed.toFloat() / fadeMs) else fadeInStart = null
+        }
+        if (f != fadeFactor) {
+            fadeFactor = f
+            player.volume = baseVolume * f
+        }
+        return true
+    }
+
+    private fun nextIsSameAlbum(): Boolean {
+        val next = player.nextMediaItemIndex
+        if (next == C.INDEX_UNSET) return false
+        val album = player.currentMediaItem?.mediaMetadata?.albumTitle ?: return false
+        return player.getMediaItemAt(next).mediaMetadata.albumTitle == album
+    }
+
+    // --- Listening stats ---------------------------------------------------------------
+
+    private fun addListen(ms: Long) {
+        val s = stats ?: return
+        val id = player.currentMediaItem?.mediaId?.toLongOrNull() ?: return
+        val stat = s.songs.getOrPut(id) { SongStat() }
+        stat.listenedMs += ms
+        val today = LocalDate.now().toString()
+        s.days[today] = (s.days[today] ?: 0L) + ms
+        listenedThisItem += ms
+        val threshold = minOf(30_000L, player.duration.coerceAtLeast(0L) / 2)
+        if (!countedThisItem && listenedThisItem >= threshold) {
+            stat.plays++
+            stat.lastPlayed = System.currentTimeMillis()
+            countedThisItem = true
+        }
+    }
+
+    private fun saveStats() {
+        val s = stats ?: return
+        val json = statsStore.toJson(s)
+        scope.launch(Dispatchers.IO) { statsStore.write(json) }
     }
 
     // ReplayGain lives in ID3 TXXX frames or Vorbis comments; both print as "...REPLAYGAIN_TRACK_GAIN...-6.5 dB".

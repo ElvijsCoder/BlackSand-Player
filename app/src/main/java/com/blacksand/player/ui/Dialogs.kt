@@ -106,7 +106,11 @@ fun SongMenu(
         } else {
             Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                 playlists.forEach { p ->
-                    MenuItem(p.name) { vm.addToPlaylist(p.id, song); toast("Added to ${p.name}"); onDismiss() }
+                    MenuItem(if (p.tapeMinutes != null) "${p.name} · C${p.tapeMinutes}" else p.name) {
+                        if (vm.addToPlaylist(p.id, song)) toast("Added to ${p.name}")
+                        else toast("Doesn't fit on the tape \"${p.name}\"")
+                        onDismiss()
+                    }
                 }
             }
             MenuItem("+ NEW PLAYLIST") { naming = true }
@@ -149,6 +153,52 @@ fun ConfirmDialog(text: String, confirm: String, onDismiss: () -> Unit, onConfir
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
             Pill("CANCEL", onClick = onDismiss)
             Pill(confirm, onClick = onConfirm)
+        }
+    }
+}
+
+/** New mixtape: a name and a tape length. Each side holds half the length. */
+@Composable
+fun MixtapeDialog(onDismiss: () -> Unit, onCreate: (name: String, minutes: Int) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var minutes by remember { mutableStateOf(60) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    SandDialog(onDismiss) {
+        Text("NEW MIXTAPE", color = Sand.Dim, fontSize = 12.sp, letterSpacing = 2.sp)
+        Box(
+            Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(10.dp))
+                .background(Sand.Black).padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            if (name.isEmpty()) Text("Name", color = Sand.Dim, fontSize = 15.sp)
+            BasicTextField(
+                name, { name = it },
+                Modifier.fillMaxWidth().focusRequester(focus),
+                singleLine = true,
+                textStyle = TextStyle(fontFamily = MonoFont, fontSize = 15.sp, color = Sand.White),
+                cursorBrush = SolidColor(Sand.Red),
+            )
+        }
+        Text("TAPE LENGTH", color = Sand.Dim, fontSize = 11.sp, letterSpacing = 2.sp)
+        Row(Modifier.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(46, 60, 90).forEach { m ->
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Sand.Black)
+                        .clickable { minutes = m }
+                        .padding(start = 6.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PlayLight(minutes == m, dot = 6.dp)
+                    Text("C$m", fontFamily = DotFont, fontSize = 16.sp, color = if (minutes == m) Sand.White else Sand.Dim)
+                }
+            }
+        }
+        Text("${minutes / 2} minutes per side.", color = Sand.Dim, fontSize = 12.sp)
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            Pill("CANCEL", onClick = onDismiss)
+            Pill("CREATE", enabled = name.isNotBlank()) { onCreate(name.trim(), minutes) }
         }
     }
 }

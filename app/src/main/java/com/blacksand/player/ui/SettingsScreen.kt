@@ -120,6 +120,32 @@ fun SettingsScreen(vm: PlayerViewModel, onClose: () -> Unit) {
             )
         }
 
+        item {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = vm::cycleFade)
+                    .semantics { stateDescription = if (s.fadeSeconds == 0) "Off" else "${s.fadeSeconds} seconds" }
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Fade between songs", fontFamily = TitleFont, fontWeight = FontWeight.Medium, fontSize = 16.sp, color = Sand.White)
+                    Text("The end of a song fades out and the next fades in. Albums stay gapless. Tap to change.",
+                        fontSize = 12.sp, color = Sand.Dim)
+                }
+                Spacer(Modifier.width(12.dp))
+                Row(
+                    Modifier.clip(RoundedCornerShape(8.dp)).background(Sand.Body).padding(start = 6.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PlayLight(s.fadeSeconds > 0, dot = 6.dp)
+                    Text(if (s.fadeSeconds == 0) "OFF" else "${s.fadeSeconds}s", fontSize = 11.sp, letterSpacing = 1.5.sp,
+                        color = if (s.fadeSeconds > 0) Sand.White else Sand.Dim)
+                }
+            }
+        }
+
         // --- Library ---
         item { Section("LIBRARY") }
         item {
