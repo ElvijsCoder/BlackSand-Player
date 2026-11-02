@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A row of dots that light up as the song plays (tiled dot bitmaps, clipped by progress). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background">
+        <bitmap android:src="@drawable/dot_off" android:tileMode="repeat" />
+    </item>
+    <item android:id="@android:id/progress">
+        <clip><bitmap android:src="@drawable/dot_on" android:tileMode="repeat" /></clip>
+    </item>
+</layer-list>

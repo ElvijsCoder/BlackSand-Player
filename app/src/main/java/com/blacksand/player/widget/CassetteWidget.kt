@@ -90,30 +90,15 @@ class CassetteWidget : AppWidgetProvider() {
             val large = layout == R.layout.widget_large
             val progress = if (s.durationMs > 0) (s.positionMs.toFloat() / s.durationMs).coerceIn(0f, 1f) else 0f
 
-            v.setTextViewText(R.id.side, s.side)
             v.setTextViewText(R.id.title, s.title ?: context.getString(R.string.widget_idle_title))
-            v.setTextViewText(R.id.artist, s.artist ?: "")
-            if (s.art != null) v.setImageViewBitmap(R.id.art, s.art)
-            else v.setImageViewResource(R.id.art, android.R.color.transparent)
             v.setImageViewResource(R.id.led, if (s.playing) R.drawable.led_on else R.drawable.led_off)
 
-            // Reels: spinners turn on their own while playing; still hubs when paused
-            // (and always still when Android's "Remove animations" is on).
-            val turning = s.playing && !reduceMotion(context)
-            val spin = if (turning) View.VISIBLE else View.GONE
-            val still = if (turning) View.GONE else View.VISIBLE
-            v.setViewVisibility(R.id.spin_left, spin)
-            v.setViewVisibility(R.id.spin_right, spin)
-            v.setViewVisibility(R.id.hub_left, still)
-            v.setViewVisibility(R.id.hub_right, still)
+            // Counter: ticks by itself while playing; plain text while paused, so it can't drift.
+            v.setChronometer(R.id.elapsed, SystemClock.elapsedRealtime() - s.positionMs, null, s.playing)
+            v.setViewVisibility(R.id.elapsed, if (s.playing) View.VISIBLE else View.GONE)
+            v.setViewVisibility(R.id.elapsed_still, if (s.playing) View.GONE else View.VISIBLE)
+            v.setTextViewText(R.id.elapsed_still, formatTime(s.positionMs))
 
-            // Tape moves from the left reel to the right as the song plays.
-            val (min, max) = if (large) 10f to 18f else 9f to 16f
-            setSize(v, R.id.pack_left, min + (max - min) * (1 - progress))
-            setSize(v, R.id.pack_right, min + (max - min) * progress)
-
-            // The play key stays pressed in while playing.
-            v.setInt(R.id.key_play, "setBackgroundResource", if (s.playing) R.drawable.key_down else R.drawable.key_bg)
             v.setOnClickPendingIntent(R.id.key_prev, mediaButton(context, KeyEvent.KEYCODE_MEDIA_PREVIOUS))
             v.setOnClickPendingIntent(
                 R.id.key_play,
@@ -122,16 +107,31 @@ class CassetteWidget : AppWidgetProvider() {
             v.setOnClickPendingIntent(R.id.key_next, mediaButton(context, KeyEvent.KEYCODE_MEDIA_NEXT))
             v.setOnClickPendingIntent(R.id.cassette, openApp(context))
 
-            v.setTextViewText(R.id.track, if (s.count > 0) "%02d/%02d".format(s.track, s.count) else "")
             if (large) {
-                v.setTextViewText(R.id.status, if (s.playing) "PLAY" else "PAUSE")
-                v.setProgressBar(R.id.progress, 1000, (progress * 1000).toInt(), false)
-                // Playing: the counter ticks by itself. Paused: plain text, so it can't drift.
-                v.setChronometer(R.id.elapsed, SystemClock.elapsedRealtime() - s.positionMs, null, s.playing)
-                v.setViewVisibility(R.id.elapsed, if (s.playing) View.VISIBLE else View.GONE)
-                v.setViewVisibility(R.id.elapsed_still, if (s.playing) View.GONE else View.VISIBLE)
-                v.setTextViewText(R.id.elapsed_still, formatTime(s.positionMs))
+                // A · Tape window
+                v.setTextViewText(R.id.artist, s.artist ?: "")
+                v.setTextViewText(R.id.track, if (s.count > 0) "%02d/%02d".format(s.track, s.count) else "")
                 v.setTextViewText(R.id.total, "/ ${formatTime(s.durationMs)}")
+
+                // Reels: spinners turn on their own while playing; still hubs when paused
+                // (and always still when Android's "Remove animations" is on).
+                val turning = s.playing && !reduceMotion(context)
+                val spin = if (turning) View.VISIBLE else View.GONE
+                val still = if (turning) View.GONE else View.VISIBLE
+                v.setViewVisibility(R.id.spin_left, spin)
+                v.setViewVisibility(R.id.spin_right, spin)
+                v.setViewVisibility(R.id.hub_left, still)
+                v.setViewVisibility(R.id.hub_right, still)
+
+                // Tape winds from the left reel to the right as the song plays (refreshed every 30 s).
+                setSize(v, R.id.pack_left, 30f + 24f * (1 - progress))
+                setSize(v, R.id.pack_right, 30f + 24f * progress)
+
+                // The play key stays pressed in while playing.
+                v.setInt(R.id.key_play, "setBackgroundResource", if (s.playing) R.drawable.key_down else R.drawable.key_bg)
+            } else {
+                // B · Nameplate: dots light up as the song plays.
+                v.setProgressBar(R.id.progress, 1000, (progress * 1000).toInt(), false)
             }
             return v
         }
