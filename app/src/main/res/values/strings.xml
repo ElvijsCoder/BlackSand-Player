@@ -7,4 +7,5 @@
     <string name="widget_next">Next track</string>
     <string name="shortcut_shuffle">Shuffle all</string>
     <string name="shortcut_resume">Resume</string>
+    <string name="widget_description_nameplate">Small player: time, title, progress and the deck keys.</string>
 </resources>

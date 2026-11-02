@@ -41,24 +41,28 @@ data class WidgetState(
 class CassetteWidget : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        push(context, loadSnapshot(context), ids)
+        push(context, loadSnapshot(context))
     }
 
     companion object {
         private const val PREFS = "widget"
 
-        fun push(context: Context, state: WidgetState, ids: IntArray? = null) {
+        /** Redraws every placed Black Sand widget: the cassette deck and the nameplate. */
+        fun push(context: Context, state: WidgetState) {
             val manager = AppWidgetManager.getInstance(context)
-            val targets = ids ?: manager.getAppWidgetIds(ComponentName(context, CassetteWidget::class.java))
-            if (targets.isEmpty()) return
-            // The launcher picks the layout that fits the widget's current size.
-            val views = RemoteViews(
-                mapOf(
-                    SizeF(110f, 110f) to build(context, R.layout.widget_small, state),
-                    SizeF(250f, 110f) to build(context, R.layout.widget_large, state),
+            val deck = manager.getAppWidgetIds(ComponentName(context, CassetteWidget::class.java))
+            if (deck.isNotEmpty()) {
+                // The launcher picks the layout that fits the widget's current size.
+                val views = RemoteViews(
+                    mapOf(
+                        SizeF(110f, 110f) to build(context, R.layout.widget_small, state),
+                        SizeF(250f, 110f) to build(context, R.layout.widget_large, state),
+                    )
                 )
-            )
-            manager.updateAppWidget(targets, views)
+                manager.updateAppWidget(deck, views)
+            }
+            val plate = manager.getAppWidgetIds(ComponentName(context, NameplateWidget::class.java))
+            if (plate.isNotEmpty()) manager.updateAppWidget(plate, build(context, R.layout.widget_small, state))
         }
 
         fun saveSnapshot(context: Context, s: WidgetState) {
@@ -72,7 +76,7 @@ class CassetteWidget : AppWidgetProvider() {
             }
         }
 
-        private fun loadSnapshot(context: Context): WidgetState {
+        internal fun loadSnapshot(context: Context): WidgetState {
             val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             return WidgetState(
                 title = p.getString("title", null),
@@ -110,6 +114,11 @@ class CassetteWidget : AppWidgetProvider() {
             if (large) {
                 // A · Tape window
                 v.setTextViewText(R.id.artist, s.artist ?: "")
+                // Cover (already greyscale or dot-matrix, per the app setting); no cover, no box.
+                if (s.art != null) {
+                    v.setImageViewBitmap(R.id.art, s.art)
+                    v.setViewVisibility(R.id.art, View.VISIBLE)
+                } else v.setViewVisibility(R.id.art, View.GONE)
                 v.setTextViewText(R.id.track, if (s.count > 0) "%02d/%02d".format(s.track, s.count) else "")
                 v.setTextViewText(R.id.total, "/ ${formatTime(s.durationMs)}")
 
@@ -124,8 +133,9 @@ class CassetteWidget : AppWidgetProvider() {
                 v.setViewVisibility(R.id.hub_right, still)
 
                 // Tape winds from the left reel to the right as the song plays (refreshed every 30 s).
-                setSize(v, R.id.pack_left, 30f + 24f * (1 - progress))
-                setSize(v, R.id.pack_right, 30f + 24f * progress)
+                // 20–40 dp: a full reel still fits the window on short 4×2 cells.
+                setSize(v, R.id.pack_left, 20f + 20f * (1 - progress))
+                setSize(v, R.id.pack_right, 20f + 20f * progress)
 
                 // The play key stays pressed in while playing.
                 v.setInt(R.id.key_play, "setBackgroundResource", if (s.playing) R.drawable.key_down else R.drawable.key_bg)
@@ -167,5 +177,12 @@ class CassetteWidget : AppWidgetProvider() {
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+    }
+}
+
+/** The 2×2 nameplate as its own entry in the widget picker. Same data, same keys. */
+class NameplateWidget : AppWidgetProvider() {
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        CassetteWidget.push(context, CassetteWidget.loadSnapshot(context))
     }
 }
