@@ -74,10 +74,11 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_vertical"
             android:layout_marginStart="6dp"
-            android:fontFamily="@font/space_mono_regular"
+            android:fontFamily="@font/doto"
             android:includeFontPadding="false"
-            android:textColor="#8A8A8A"
-            android:textSize="11sp" />
+            android:textColor="#B5B5B2"
+            android:textSize="13sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <FrameLayout
@@ -120,12 +121,14 @@
                 android:visibility="gone" />
         </FrameLayout>
 
+        <!-- Counter on one line between the reels: "00:02 / 07:07", all in the dot font. -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:gravity="center_horizontal"
-            android:orientation="vertical">
+            android:baselineAligned="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
             <Chronometer
                 android:id="@+id/elapsed"
                 android:layout_width="wrap_content"
@@ -133,7 +136,8 @@
                 android:fontFamily="@font/doto"
                 android:includeFontPadding="false"
                 android:textColor="#F2F2F0"
-                android:textSize="22sp" />
+                android:textSize="22sp"
+                android:textStyle="bold" />
             <!-- Shown while paused: a stopped Chronometer recounts from its base on every redraw. -->
             <TextView
                 android:id="@+id/elapsed_still"
@@ -142,16 +146,18 @@
                 android:fontFamily="@font/doto"
                 android:includeFontPadding="false"
                 android:textColor="#F2F2F0"
-                android:textSize="22sp" />
+                android:textSize="22sp"
+                android:textStyle="bold" />
             <TextView
                 android:id="@+id/total"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:fontFamily="@font/space_mono_regular"
+                android:layout_marginStart="6dp"
+                android:fontFamily="@font/doto"
                 android:includeFontPadding="false"
                 android:textColor="#8A8A8A"
-                android:textSize="11sp" />
+                android:textSize="15sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
         <FrameLayout
