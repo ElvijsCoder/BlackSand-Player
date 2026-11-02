@@ -70,7 +70,8 @@
             android:progressDrawable="@drawable/dot_progress" />
     </LinearLayout>
 
-    <View
+    <!-- Spacer. Widgets only accept certain view types (no plain View), so a FrameLayout. -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1" />
