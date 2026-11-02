@@ -23,8 +23,8 @@ jobs:
         with:
           gradle-version: "8.11.1"
 
-      # ponytail: debug-signed with a throwaway key per run, so uninstall before each install.
-      # Add a keystore (secrets + assembleRelease) once the app holds data worth keeping.
+      # Signed with the fixed key in app/blacksand-debug.keystore, so every build installs
+      # over the last one and keeps playlists and resume state.
       - name: Build debug APK
         run: |
           gradle assembleDebug
@@ -36,9 +36,12 @@ jobs:
           name: BlackSand-${{ github.run_number }}
           path: BlackSand-${{ github.run_number }}.apk
 
+      # Full releases (not pre-releases) so Obtainium picks them up, tagged with the
+      # version the APK reports (0.1.N) so it can tell what's newer.
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
-          prerelease: true
+          tag_name: v0.1.${{ github.run_number }}
+          name: Black Sand 0.1.${{ github.run_number }}
+          prerelease: false
+          make_latest: true
           files: BlackSand-${{ github.run_number }}.apk

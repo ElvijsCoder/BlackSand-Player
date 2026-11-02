@@ -358,6 +358,17 @@
             android:textColor="#F2F2F0"
             android:textSize="16sp" />
 
+        <!-- Shown while paused. A stopped Chronometer recounts from its base whenever the
+             launcher redraws it, which is how "3:22:55 / 05:03" happened. -->
+        <TextView
+            android:id="@+id/elapsed_still"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/doto"
+            android:includeFontPadding="false"
+            android:textColor="#F2F2F0"
+            android:textSize="16sp" />
+
         <TextView
             android:id="@+id/total"
             android:layout_width="wrap_content"

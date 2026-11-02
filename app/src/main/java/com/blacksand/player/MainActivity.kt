@@ -37,6 +37,14 @@ import com.blacksand.player.ui.*
 class MainActivity : ComponentActivity() {
     private val viewModel: PlayerViewModel by viewModels()
 
+    /** Bumped each time the app comes back from the background: AppRoot returns to the library. */
+    private val returns = mutableIntStateOf(0)
+
+    override fun onRestart() {
+        super.onRestart()
+        returns.intValue++
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -44,7 +52,7 @@ class MainActivity : ComponentActivity() {
         val reduce = reduceMotion(this)
         setContent {
             CompositionLocalProvider(LocalReduceMotion provides reduce) {
-                BlackSandTheme { AppRoot(viewModel) }
+                BlackSandTheme { AppRoot(viewModel, returns.intValue) }
             }
         }
         if (savedInstanceState == null) viewModel.handleShortcut(intent?.action)
@@ -58,7 +66,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AppRoot(vm: PlayerViewModel) {
+private fun AppRoot(vm: PlayerViewModel, returns: Int) {
     val context = LocalContext.current
     var granted by remember {
         mutableStateOf(
@@ -80,6 +88,9 @@ private fun AppRoot(vm: PlayerViewModel) {
     LaunchedEffect(Unit) { if (loading) { delay(1100); loading = false } }
     val enter = if (reduce) fadeIn() else slideInVertically { it } + fadeIn()
     val exit = if (reduce) fadeOut() else slideOutVertically { it } + fadeOut()
+    // Opening the app (launcher or widget) always starts on the library; the player is one tap away.
+    // Shortcuts still open the player: they emit openPlayer once playback is ready, after this.
+    LaunchedEffect(returns) { if (returns > 0) { showPlayer = false; showSettings = false } }
     LaunchedEffect(vm) { vm.openPlayer.collect { showSettings = false; showPlayer = true } }
 
     Box(Modifier.fillMaxSize().background(Sand.Black)) {

@@ -126,8 +126,11 @@ class CassetteWidget : AppWidgetProvider() {
             if (large) {
                 v.setTextViewText(R.id.status, if (s.playing) "PLAY" else "PAUSE")
                 v.setProgressBar(R.id.progress, 1000, (progress * 1000).toInt(), false)
-                // The counter ticks by itself while playing; no updates needed.
+                // Playing: the counter ticks by itself. Paused: plain text, so it can't drift.
                 v.setChronometer(R.id.elapsed, SystemClock.elapsedRealtime() - s.positionMs, null, s.playing)
+                v.setViewVisibility(R.id.elapsed, if (s.playing) View.VISIBLE else View.GONE)
+                v.setViewVisibility(R.id.elapsed_still, if (s.playing) View.GONE else View.VISIBLE)
+                v.setTextViewText(R.id.elapsed_still, formatTime(s.positionMs))
                 v.setTextViewText(R.id.total, "/ ${formatTime(s.durationMs)}")
             }
             return v
