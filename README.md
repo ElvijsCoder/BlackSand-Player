@@ -143,7 +143,7 @@ No Android Studio needed. GitHub builds it.
 2. **Download:** Open **Releases** on your phone and grab the newest `BlackSand-N.apk`.
 3. **Install:** Allow your browser to install apps the first time.
 
-Every build is signed with the same key (`app/blacksand-debug.keystore`), so new versions install right over the old one and keep your playlists, stats and settings.
+Every build is signed with Black Sand's private key (GitHub secrets `KEYSTORE_BASE64` and `KEYSTORE_PASSWORD`), so new versions install right over the old one and keep your playlists, stats and settings. Updates arrive through Obtainium.
 
 ---
 

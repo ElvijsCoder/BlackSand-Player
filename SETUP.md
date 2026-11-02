@@ -1,7 +1,7 @@
 # Black Sand: build with GitHub Actions
 
 Every push to `main` builds an APK and publishes it as a GitHub release you can
-open on the phone. No keys, no secrets, no Android Studio.
+open on the phone. No Android Studio; two GitHub secrets hold the signing key.
 
 ## 1. Create the repo
 - New private GitHub repo, e.g. `black-sand`
@@ -14,9 +14,8 @@ When it's green: Releases → newest "Build N" → tap the `.apk` on the phone.
 First install: allow your browser to install unknown apps.
 
 ## 3. Updating
-Builds are signed with a fixed key kept in the repo (`app/blacksand-debug.keystore`),
-so each new APK installs over the previous one and keeps your data.
-The very first build with this key needs one last uninstall of the old version.
+Builds are signed with a private key stored as GitHub secrets (`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`).
+Keep the `.jks` file backed up outside the repo: losing it means one uninstall to switch keys.
 
 ## 4. Test on the 3a
 - Allow music access → songs list appears
